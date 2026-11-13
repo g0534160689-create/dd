@@ -36,7 +36,8 @@ public partial class MainWindow : Window {
  private readonly ObservableCollection<RouteRule> _rules=[];
  private readonly ObservableCollection<ElementRule> _elements=[];
  private readonly List<string> _events=[];
- private bool _elementPicking;\n private bool _browserInitialized;
+ private bool _elementPicking;
+ private bool _browserInitialized;
  private bool _adminUnlocked;
  private const int PasswordIterations=310000;
  private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
@@ -56,7 +57,6 @@ public partial class MainWindow : Window {
  public MainWindow() {
   InitializeComponent(); RulesGrid.ItemsSource=_rules; ElementsGrid.ItemsSource=_elements; AllowPopupsCheck.IsChecked=_policy.AllowSameOriginPopups;
   BuildPortal(); RefreshCounts(); ApplyTheme(); ApplyBackground(); ClockText.Text=DateTime.Now.ToString("dddd, dd MMMM yyyy · HH:mm");
-  Loaded+=async (_,_)=>await InitializeBrowserAsync();
   Closing+=(_,_)=>{try{Browser.Dispose();}catch{}};
  }
  private static LocalPolicy LoadPolicy() {
