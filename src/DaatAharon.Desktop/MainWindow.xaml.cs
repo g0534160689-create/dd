@@ -52,8 +52,20 @@ public partial class MainWindow : Window {
   Closing+=(_,_)=>{try{Browser.Dispose();}catch{}};
  }
  private static LocalPolicy LoadPolicy() {
-  try { Directory.CreateDirectory(DataFolder); if(File.Exists(PolicyPath)) return JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(PolicyPath),JsonOptions)??new(); }
-  catch(Exception ex){LogStatic("טעינת מדיניות נכשלה",ex);}
+  try {
+   Directory.CreateDirectory(DataFolder);
+   foreach(var candidate in new[]{PolicyPath,PolicyPath+".bak",Path.Combine(DataFolder,"RavKavKiosk","admin-policy.json"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RavKavKiosk","admin-policy.json")}) {
+    if(!File.Exists(candidate))continue;
+    var loaded=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(candidate),JsonOptions);
+    if(loaded is not null) {
+     if(!string.Equals(candidate,PolicyPath,StringComparison.OrdinalIgnoreCase)) {
+      File.WriteAllText(PolicyPath,JsonSerializer.Serialize(loaded,JsonOptions));
+      LogStatic("הגדרות מהתוכנה הישנה הועברו בהצלחה",null);
+     }
+     return loaded;
+    }
+   }
+  } catch(Exception ex){LogStatic("טעינת מדיניות נכשלה",ex);}
   return new LocalPolicy();
  }
  private static void LogStatic(string message,Exception? ex=null) { try { Directory.CreateDirectory(DataFolder); File.AppendAllText(Path.Combine(DataFolder,"activity.log"),$"[{DateTime.Now:O}] {message} {ex}\n"); } catch {} }
@@ -99,22 +111,38 @@ public partial class MainWindow : Window {
      _elementPicking=false; _=ApplyElementRulesAsync(); ShowManagement("ניהול רכיבי עמוד"); SavePolicy();
     } catch(Exception ex){Log("בחירת רכיב נכשלה",ex);}
    };
-   Browser.CoreWebView2.DOMContentLoaded+=async (_,_)=>await ApplyElementRulesAsync();
+   Browser.CoreWebView2.DOMContentLoaded+=async (_,_)=>{await ApplyElementRulesAsync();await ApplyPaymentRestrictionsAsync();};
    Browser.CoreWebView2.Navigate("https://hopon.co.il/read"); StatusText.Text="הדפדפן המאובטח מוכן";
   } catch(Exception ex){Log("אתחול WebView2 נכשל",ex);StatusText.Text="WebView2 לא זמין — בדוק התקנה";}
  }
  private bool IsAllowed(Uri uri) {
   if(uri.Scheme!="https"||!uri.IsDefaultPort||!string.IsNullOrEmpty(uri.UserInfo))return false;
-  var rule=_policy.Routes.Where(r=>r.Host.Equals(uri.Host,StringComparison.OrdinalIgnoreCase)&&PathMatches(uri.AbsolutePath,r.Path)).OrderByDescending(r=>r.Path.Length).FirstOrDefault();
+  if(uri.Host.Equals("pay.google.com",StringComparison.OrdinalIgnoreCase)||uri.Host.EndsWith(".pay.google.com",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("payments.google.com",StringComparison.OrdinalIgnoreCase))return false;
+  string? normalized=NormalizePath(uri.AbsolutePath); if(normalized is null)return false;
+  var rule=_policy.Routes.Where(r=>r.Host.Equals(uri.Host,StringComparison.OrdinalIgnoreCase)&&PathMatches(normalized,r.Path)).OrderByDescending(r=>r.Path.Length).ThenBy(r=>r.Allowed).FirstOrDefault();
   if(rule is not null)return rule.Allowed;
-  if(uri.Host.Equals("ravkavonline.co.il",StringComparison.OrdinalIgnoreCase))return uri.AbsolutePath.Equals("/he/store/connect",StringComparison.OrdinalIgnoreCase);
+  if(uri.Host.Equals("ravkavonline.co.il",StringComparison.OrdinalIgnoreCase))return normalized.Equals("/he/store/connect",StringComparison.OrdinalIgnoreCase);
   if(uri.Host.Equals("hopon.co.il",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("www.hopon.co.il",StringComparison.OrdinalIgnoreCase)) {
    string[] blocked=["/charging-stations-map","/about","/ravkav","/freeMonthly","/freeMonthlyOtef","/accessibility","/map","/student"];
-   return !blocked.Any(p=>PathMatches(uri.AbsolutePath,p));
+   return !blocked.Any(p=>PathMatches(normalized,p));
   }
   return _policy.AllowedHosts.Contains(uri.Host,StringComparer.OrdinalIgnoreCase);
  }
- private static bool PathMatches(string actual,string root)=>root=="/"||actual.Equals(root,StringComparison.OrdinalIgnoreCase)||actual.StartsWith(root.TrimEnd('/')+"/",StringComparison.OrdinalIgnoreCase);
+ private static string? NormalizePath(string value) {
+  try {
+   string path=value;
+   for(int i=0;i<10&&path.Contains('%');i++){string decoded=Uri.UnescapeDataString(path);if(decoded==path)break;path=decoded;}
+   if(path.Contains('%'))return null;
+   path=path.Replace('\\','/');
+   var parts=new List<string>();
+   foreach(var part in path.Split('/')){if(part.Length==0||part==".")continue;if(part==".."){if(parts.Count>0)parts.RemoveAt(parts.Count-1);continue;}if(part.Any(char.IsControl))return null;parts.Add(part);}
+   return "/"+string.Join("/",parts);
+  } catch{return null;}
+ }
+ private static bool PathMatches(string actual,string root) {
+  string normalized=NormalizePath(root)??"/";
+  return normalized=="/"||actual.Equals(normalized,StringComparison.OrdinalIgnoreCase)||actual.StartsWith(normalized.TrimEnd('/')+"/",StringComparison.OrdinalIgnoreCase);
+ }
  private void OpenService(PortalService service) {
   ShowBrowser(); AddressBox.Text=service.Url;
   if(Browser.CoreWebView2 is not null&&Uri.TryCreate(service.Url,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2.Navigate(service.Url);
@@ -126,7 +154,12 @@ public partial class MainWindow : Window {
  private void RefreshGrids(){_rules.Clear();foreach(var r in _policy.Routes)_rules.Add(r);_elements.Clear();foreach(var e in _policy.Elements)_elements.Add(e);}
  private void RefreshCounts(){RulesCount.Text=_policy.Routes.Count.ToString();ServicesCount.Text=Services.Length.ToString();EventsCount.Text=_events.Count.ToString();}
  private void Log(string message,Exception? ex=null){_events.Insert(0,$"[{DateTime.Now:HH:mm:ss}] {message} {ex?.Message}");if(_events.Count>500)_events.RemoveAt(_events.Count-1);LogStatic(message,ex);RefreshCounts();}
- private async Task ApplyElementRulesAsync(){
+ private async Task ApplyPaymentRestrictionsAsync() {
+  if(Browser.CoreWebView2 is null)return;
+  const string script=@"(()=>{const isGooglePay=e=>((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')).toLowerCase().includes('google pay');document.querySelectorAll('button,a,[role=button],iframe').forEach(e=>{if(isGooglePay(e)||(e.tagName==='IFRAME'&&(e.src||'').toLowerCase().includes('pay.google.com'))){e.remove();}});})();";
+  await Browser.CoreWebView2.ExecuteScriptAsync(script);
+ }
+\n private async Task ApplyElementRulesAsync(){
   if(Browser.CoreWebView2 is null)return;
   var selectors=_policy.Elements.Where(x=>x.Host.Equals(Browser.Source?.Host,StringComparison.OrdinalIgnoreCase)&&!x.Allowed).Select(x=>x.Selector).ToArray();
   string json=JsonSerializer.Serialize(selectors);
