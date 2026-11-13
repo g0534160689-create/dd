@@ -568,6 +568,7 @@ public partial class MainWindow : Window {
      string target=Path.Combine(imageFolder,Guid.NewGuid().ToString("N")+ext);File.WriteAllBytes(target,bytes);element.ReplacementImagePath=target;
     }
    } else imported=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(dialog.FileName),JsonOptions)??throw new InvalidDataException("קובץ הגיבוי ריק או פגום.");
+   if(!string.IsNullOrWhiteSpace(imported.ThemeId))imported.Theme=imported.ThemeId;
    foreach(var route in imported.Routes){
     string host=route.Host.StartsWith("*.")?route.Host[2..]:route.Host;
     if(Uri.CheckHostName(host)==UriHostNameType.Unknown||string.IsNullOrWhiteSpace(route.Path)||!route.Path.StartsWith('/')||route.Path.Length>2048||route.Path.Any(char.IsControl))throw new InvalidDataException("נמצא כלל כתובת לא תקין.");
