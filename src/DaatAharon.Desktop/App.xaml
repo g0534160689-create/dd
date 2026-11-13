@@ -11,5 +11,38 @@
   <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
   <SolidColorBrush x:Key="TextBrush" Color="#F3F6FC"/>
   <SolidColorBrush x:Key="MutedBrush" Color="#91A0B8"/>
+  <Style x:Key="NavButton" TargetType="{x:Type Button}">
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+   <Setter Property="BorderBrush" Value="Transparent"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="Padding" Value="12,10"/>
+   <Setter Property="Margin" Value="0,2"/>
+   <Setter Property="HorizontalContentAlignment" Value="Left"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="FontSize" Value="14"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="{x:Type Button}">
+      <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="9" Padding="{TemplateBinding Padding}">
+       <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#29446A"/></Trigger>
+       <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#365A8C"/></Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style TargetType="{x:Type DataGrid}">
+   <Setter Property="AlternationCount" Value="2"/>
+   <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+   <Setter Property="HeadersVisibility" Value="Column"/>
+   <Setter Property="CanUserResizeRows" Value="False"/>
+   <Setter Property="RowHeight" Value="34"/>
+   <Setter Property="ColumnHeaderHeight" Value="38"/>
+  </Style>
  </Application.Resources>
 </Application>
