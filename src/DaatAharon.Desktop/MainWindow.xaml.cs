@@ -248,6 +248,7 @@ public partial class MainWindow : Window {
   ShowManagement("ניהול מערכת");
  }
  private bool AuthenticateAdmin() {
+  if(!File.Exists(PasswordPath)&&File.Exists(LegacyPasswordPath)){Directory.CreateDirectory(DataFolder);File.Copy(LegacyPasswordPath,PasswordPath,true);Log("סיסמת מנהל הועברה מהגרסה הישנה");}
   if(!File.Exists(PasswordPath)) {
    var first=PasswordPrompt("הגדרת סיסמת מנהל חדשה"); if(first is null)return false;
    var second=PasswordPrompt("אימות סיסמת מנהל — הקלד שוב"); if(second is null)return false;
