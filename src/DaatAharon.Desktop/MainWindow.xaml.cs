@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Diagnostics;
+using System.Text;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Windows.Input;
@@ -380,6 +382,54 @@ public partial class MainWindow : Window {
   if(!_adminUnlocked||AllowPopupsCheck is null)return;
   _policy.AllowSameOriginPopups=AllowPopupsCheck.IsChecked==true; SavePolicy();
  }
+
+ private void ReaderDiagnostics_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked)return;
+  var report=new List<string>{
+   "אבחון קורא כרטיסים — דעת אהרן",
+   "זמן בדיקה: "+DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+   "Windows: "+Environment.OSVersion.VersionString,
+   "ארכיטקטורת מערכת: "+(Environment.Is64BitOperatingSystem?"64-bit":"32-bit")
+  };
+  try { report.Add("WebView2 Runtime: "+CoreWebView2Environment.GetAvailableBrowserVersionString()); }
+  catch(Exception ex){report.Add("WebView2 Runtime: לא זמין — "+ex.Message);}
+  try {
+   using var key=Registry.ClassesRoot.OpenSubKey("ravkav");
+   if(key is null)report.Add("פרוטוקול ravkav: לא רשום ב-Windows");
+   else {
+    report.Add("פרוטוקול ravkav: רשום");
+    report.Add("URL Protocol: "+(key.GetValue("URL Protocol") is null?"לא מוגדר":"מוגדר"));
+    using var command=key.OpenSubKey(@"shell\open\command");
+    report.Add("פקודת הפעלה: "+(command?.GetValue(null)?.ToString()??"לא נמצאה"));
+   }
+  } catch(Exception ex){report.Add("בדיקת פרוטוקול נכשלה: "+ex.Message);}
+  report.Add(""); report.Add("קוראי כרטיסים דרך Windows PC/SC:");
+  IntPtr context=IntPtr.Zero;
+  try {
+   int result=SCardEstablishContext(2,IntPtr.Zero,IntPtr.Zero,out context);
+   if(result!=0)report.Add("לא ניתן להתחבר לשירות הכרטיסים. קוד: 0x"+result.ToString("X8"));
+   else {
+    uint length=0; result=SCardListReaders(context,null,null,ref length);
+    if(result==unchecked((int)0x8010002E))report.Add("Windows לא מזהה כרגע קורא כרטיסים מחובר.");
+    else if(result!=0)report.Add("קריאת רשימת הקוראים נכשלה. קוד: 0x"+result.ToString("X8"));
+    else if(length>0) {
+     var buffer=new StringBuilder(checked((int)length));
+     result=SCardListReaders(context,null,buffer,ref length);
+     if(result==0)report.AddRange(buffer.ToString().Split('\0',StringSplitOptions.RemoveEmptyEntries).Select((name,index)=>(index+1)+". "+name));
+     else report.Add("קריאת שמות הקוראים נכשלה. קוד: 0x"+result.ToString("X8"));
+    } else report.Add("לא נמצאו קוראים.");
+   }
+  } catch(Exception ex){report.Add("שגיאה בזיהוי קוראים: "+ex.Message);}
+  finally {if(context!=IntPtr.Zero)_=SCardReleaseContext(context);}
+  report.Add(""); report.Add("הבדיקה מאבחנת את Windows בלבד. היא אינה מבצעת טעינה או עסקה.");
+  MessageBox.Show(string.Join(Environment.NewLine,report),"אבחון קורא רב־קו",MessageBoxButton.OK,MessageBoxImage.Information);
+ }
+ [DllImport("winscard.dll",EntryPoint="SCardEstablishContext")]
+ private static extern int SCardEstablishContext(uint scope,IntPtr reserved1,IntPtr reserved2,out IntPtr context);
+ [DllImport("winscard.dll",EntryPoint="SCardListReadersW",CharSet=CharSet.Unicode)]
+ private static extern int SCardListReaders(IntPtr context,string? groups,StringBuilder? readers,ref uint readersLength);
+ [DllImport("winscard.dll",EntryPoint="SCardReleaseContext")]
+ private static extern int SCardReleaseContext(IntPtr context);
 
  private void Dashboard_Click(object s,RoutedEventArgs e)=>ShowDashboard();
  private void Portal_Click(object s,RoutedEventArgs e)=>ShowDashboard();
