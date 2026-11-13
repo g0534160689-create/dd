@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Windows.Input;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Web.WebView2.Core;
@@ -28,6 +30,9 @@ public partial class MainWindow : Window {
  private readonly ObservableCollection<ElementRule> _elements=[];
  private readonly List<string> _events=[];
  private bool _elementPicking;
+ private bool _adminUnlocked;
+ private const int PasswordIterations=310000;
+ private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
  private static readonly PortalService[] Services=[
   new("nedarim","נדרים פלוס – אזור אישי","כניסה לאזור האישי","https://donors.matara.pro/login","שירותים"),
   new("torah-dileyh","תורה דיליה","סיכומי סוגיות וכתיבת חבורות","https://www.matara.pro/nedarimplus/online/?mosad=7005288","לימוד"),
@@ -41,7 +46,7 @@ public partial class MainWindow : Window {
   new("ravkav","רב־קו אונליין","חיבור לכרטיס וטעינה","https://ravkavonline.co.il/he/store/connect","רב־קו")
  ];
  public MainWindow() {
-  InitializeComponent(); RulesGrid.ItemsSource=_rules; ElementsGrid.ItemsSource=_elements;
+  InitializeComponent(); RulesGrid.ItemsSource=_rules; ElementsGrid.ItemsSource=_elements; AllowPopupsCheck.IsChecked=_policy.AllowSameOriginPopups;
   BuildPortal(); RefreshCounts(); ClockText.Text=DateTime.Now.ToString("dddd, dd MMMM yyyy · HH:mm");
   Loaded+=async (_,_)=>await InitializeBrowserAsync();
   Closing+=(_,_)=>{try{Browser.Dispose();}catch{}};
@@ -132,14 +137,78 @@ public partial class MainWindow : Window {
   await Browser.CoreWebView2.ExecuteScriptAsync(@"(()=>{if(window.__daatPicker)return;window.__daatPicker=true;let last=null;document.addEventListener('mouseover',e=>{if(last)last.style.outline='';last=e.target;last.style.outline='3px solid #ffb347'},{capture:true});document.addEventListener('contextmenu',e=>{e.preventDefault();const path=[];let n=e.target;while(n&&n.nodeType===1&&path.length<8){let p=n.tagName.toLowerCase();if(n.id){p+='#'+CSS.escape(n.id);path.unshift(p);break;}const siblings=[...n.parentElement.children].filter(x=>x.tagName===n.tagName);if(siblings.length>1)p+=':nth-of-type('+(siblings.indexOf(n)+1)+')';path.unshift(p);n=n.parentElement;}chrome.webview.postMessage({selector:path.join(' > ')})},{capture:true})})()");
   StatusText.Text="בחר רכיב באתר בלחיצה ימנית";
  }
+
+ private void Window_PreviewKeyDown(object sender,KeyEventArgs e) {
+  if(e.Key==Key.A && Keyboard.Modifiers==(ModifierKeys.Control|ModifierKeys.Shift)) { e.Handled=true; UnlockAdmin(); }
+ }
+ private void UnlockAdmin() {
+  if(!AuthenticateAdmin())return;
+  _adminUnlocked=true; AdminNav.Visibility=Visibility.Visible; StatusText.Text="מצב מנהל מאובטח פעיל"; Log("מנהל התחבר");
+  ShowManagement("ניהול מערכת");
+ }
+ private bool AuthenticateAdmin() {
+  if(!File.Exists(PasswordPath)) {
+   var first=PasswordPrompt("הגדרת סיסמת מנהל חדשה"); if(first is null)return false;
+   var second=PasswordPrompt("אימות סיסמת מנהל — הקלד שוב"); if(second is null)return false;
+   if(first!=second || first.Length<8) { MessageBox.Show("הסיסמאות אינן תואמות או קצרות מדי (נדרשים לפחות 8 תווים)."); return false; }
+   SavePassword(first); return true;
+  }
+  var entered=PasswordPrompt("כניסה לאזור הניהול"); if(entered is null)return false;
+  try {
+   using var doc=JsonDocument.Parse(File.ReadAllText(PasswordPath));
+   var salt=Convert.FromBase64String(doc.RootElement.GetProperty("salt").GetString()!);
+   var expected=Convert.FromBase64String(doc.RootElement.GetProperty("hash").GetString()!);
+   var actual=Rfc2898DeriveBytes.Pbkdf2(entered,salt,PasswordIterations,HashAlgorithmName.SHA256,32);
+   if(CryptographicOperations.FixedTimeEquals(expected,actual))return true;
+  } catch(Exception ex){Log("אימות סיסמת מנהל נכשל",ex);}
+  MessageBox.Show("הסיסמה שגויה.","אימות מנהל",MessageBoxButton.OK,MessageBoxImage.Warning); return false;
+ }
+ private static string? PasswordPrompt(string title) {
+  var dialog=new Window{Title=title,Width=390,Height=190,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,FlowDirection=FlowDirection.RightToLeft,Background=System.Windows.Media.Brushes.White};
+  var panel=new StackPanel{Margin=new Thickness(18)};
+  panel.Children.Add(new TextBlock{Text=title,FontSize=16,Margin=new Thickness(0,0,0,12)});
+  var box=new PasswordBox{Padding=new Thickness(8),Margin=new Thickness(0,0,0,12)}; panel.Children.Add(box);
+  var ok=new Button{Content="אישור",Padding=new Thickness(14,7),IsDefault=true,HorizontalAlignment=HorizontalAlignment.Left}; panel.Children.Add(ok);
+  ok.Click+=(_,_)=>dialog.DialogResult=true; dialog.Content=panel;
+  return dialog.ShowDialog()==true?box.Password:null;
+ }
+ private static void SavePassword(string password) {
+  Directory.CreateDirectory(DataFolder); var salt=RandomNumberGenerator.GetBytes(16);
+  var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,PasswordIterations,HashAlgorithmName.SHA256,32);
+  File.WriteAllText(PasswordPath,JsonSerializer.Serialize(new{salt=Convert.ToBase64String(salt),hash=Convert.ToBase64String(hash),iterations=PasswordIterations}));
+ }
+ private void ChangeAdminPassword_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked)return;
+  var old=PasswordPrompt("אימות הסיסמה הנוכחית"); if(old is null)return;
+  try {
+   using var doc=JsonDocument.Parse(File.ReadAllText(PasswordPath));
+   var salt=Convert.FromBase64String(doc.RootElement.GetProperty("salt").GetString()!);
+   var expected=Convert.FromBase64String(doc.RootElement.GetProperty("hash").GetString()!);
+   var actual=Rfc2898DeriveBytes.Pbkdf2(old,salt,PasswordIterations,HashAlgorithmName.SHA256,32);
+   if(!CryptographicOperations.FixedTimeEquals(expected,actual)){MessageBox.Show("הסיסמה הנוכחית שגויה.");return;}
+  } catch { MessageBox.Show("לא ניתן לאמת את הסיסמה.");return; }
+  var next=PasswordPrompt("הגדרת סיסמה חדשה"); if(next is null)return;
+  var confirm=PasswordPrompt("אימות הסיסמה החדשה");
+  if(confirm!=next||next.Length<8){MessageBox.Show("הסיסמאות אינן תואמות או קצרות מדי.");return;}
+  SavePassword(next); MessageBox.Show("סיסמת המנהל עודכנה.");
+ }
+ private void AllowSelectedElement_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked||ElementsGrid.SelectedItem is not ElementRule item)return;
+  item.Allowed=true; SavePolicy(); RefreshGrids(); if(Browser.CoreWebView2 is not null)Browser.CoreWebView2.Reload();
+ }
+ private void PopupSettingChanged(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked||AllowPopupsCheck is null)return;
+  _policy.AllowSameOriginPopups=AllowPopupsCheck.IsChecked==true; SavePolicy();
+ }
+
  private void Dashboard_Click(object s,RoutedEventArgs e)=>ShowDashboard();
  private void Portal_Click(object s,RoutedEventArgs e)=>ShowDashboard();
  private void Browser_Click(object s,RoutedEventArgs e)=>ShowBrowser();
- private void Policies_Click(object s,RoutedEventArgs e)=>ShowManagement("חסימות והרשאות");
- private void Popups_Click(object s,RoutedEventArgs e)=>ShowManagement("ניהול חלונות קופצים");
- private void Elements_Click(object s,RoutedEventArgs e)=>ShowManagement("ניהול רכיבי עמוד");
- private void Settings_Click(object s,RoutedEventArgs e)=>ShowManagement("הגדרות וגיבוי");
- private void Diagnostics_Click(object s,RoutedEventArgs e)=>ShowManagement("יומן ואבחון");
+ private void Policies_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("חסימות והרשאות");}
+ private void Popups_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("ניהול חלונות קופצים");}
+ private void Elements_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("ניהול רכיבי עמוד");}
+ private void Settings_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("הגדרות וגיבוי");}
+ private void Diagnostics_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("יומן ואבחון");}
  private void Back_Click(object s,RoutedEventArgs e){if(Browser.CoreWebView2?.CanGoBack==true)Browser.CoreWebView2.GoBack();}
  private void NavigateAddress_Click(object s,RoutedEventArgs e){if(Uri.TryCreate(AddressBox.Text,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2?.Navigate(uri.ToString());else StatusText.Text="הכתובת חסומה לפי מדיניות";}
  private void AddBlockRule_Click(object s,RoutedEventArgs e){
