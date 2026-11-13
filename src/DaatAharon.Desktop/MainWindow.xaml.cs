@@ -201,7 +201,7 @@ public partial class MainWindow : Window {
   var panel=new StackPanel{Margin=new Thickness(18)};
   panel.Children.Add(new TextBlock{Text=title,FontSize=16,Margin=new Thickness(0,0,0,12)});
   var box=new PasswordBox{Padding=new Thickness(8),Margin=new Thickness(0,0,0,12)}; panel.Children.Add(box);
-  var ok=new Button{Content="אישור",Padding=new Thickness(14,7),IsDefault=true,HorizontalAlignment=HorizontalAlignment.Left}; panel.Children.Add(ok);
+  var ok=new Button{Content="אישור",Padding=new Thickness(14,7,14,7),IsDefault=true,HorizontalAlignment=HorizontalAlignment.Left}; panel.Children.Add(ok);
   ok.Click+=(_,_)=>dialog.DialogResult=true; dialog.Content=panel;
   return dialog.ShowDialog()==true?box.Password:null;
  }
