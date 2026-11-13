@@ -159,7 +159,8 @@ public partial class MainWindow : Window {
   const string script=@"(()=>{const isGooglePay=e=>((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')).toLowerCase().includes('google pay');document.querySelectorAll('button,a,[role=button],iframe').forEach(e=>{if(isGooglePay(e)||(e.tagName==='IFRAME'&&(e.src||'').toLowerCase().includes('pay.google.com'))){e.remove();}});})();";
   await Browser.CoreWebView2.ExecuteScriptAsync(script);
  }
-\n private async Task ApplyElementRulesAsync(){
+
+ private async Task ApplyElementRulesAsync(){
   if(Browser.CoreWebView2 is null)return;
   var selectors=_policy.Elements.Where(x=>x.Host.Equals(Browser.Source?.Host,StringComparison.OrdinalIgnoreCase)&&!x.Allowed).Select(x=>x.Selector).ToArray();
   string json=JsonSerializer.Serialize(selectors);
