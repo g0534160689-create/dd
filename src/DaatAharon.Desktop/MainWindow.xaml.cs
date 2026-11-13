@@ -20,7 +20,7 @@ public sealed class LocalPolicy {
  public List<string> FavoriteServiceIds { get; set; } = [];
  public Dictionary<string,int> ClickCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
  public bool AllowSameOriginPopups { get; set; } = true;
- public string Theme { get; set; } = "midnight";
+ public string Theme { get; set; } = "midnight";\n public string BackgroundImagePath { get; set; } = "";
 }
 public sealed record PortalService(string Id,string Title,string Subtitle,string Url,string Category);
 
@@ -51,7 +51,7 @@ public partial class MainWindow : Window {
  ];
  public MainWindow() {
   InitializeComponent(); RulesGrid.ItemsSource=_rules; ElementsGrid.ItemsSource=_elements; AllowPopupsCheck.IsChecked=_policy.AllowSameOriginPopups;
-  BuildPortal(); RefreshCounts(); ClockText.Text=DateTime.Now.ToString("dddd, dd MMMM yyyy · HH:mm");
+  BuildPortal(); RefreshCounts(); ApplyTheme(); ApplyBackground(); ClockText.Text=DateTime.Now.ToString("dddd, dd MMMM yyyy · HH:mm");
   Loaded+=async (_,_)=>await InitializeBrowserAsync();
   Closing+=(_,_)=>{try{Browser.Dispose();}catch{}};
  }
@@ -199,6 +199,43 @@ public partial class MainWindow : Window {
   if(Browser.CoreWebView2 is null)return; _elementPicking=true;
   await Browser.CoreWebView2.ExecuteScriptAsync(@"(()=>{if(window.__daatPicker)return;window.__daatPicker=true;let last=null;document.addEventListener('mouseover',e=>{if(last)last.style.outline='';last=e.target;last.style.outline='3px solid #ffb347'},{capture:true});document.addEventListener('contextmenu',e=>{e.preventDefault();const path=[];let n=e.target;while(n&&n.nodeType===1&&path.length<8){let p=n.tagName.toLowerCase();if(n.id){p+='#'+CSS.escape(n.id);path.unshift(p);break;}const siblings=[...n.parentElement.children].filter(x=>x.tagName===n.tagName);if(siblings.length>1)p+=':nth-of-type('+(siblings.indexOf(n)+1)+')';path.unshift(p);n=n.parentElement;}chrome.webview.postMessage({selector:path.join(' > ')})},{capture:true})})()");
   StatusText.Text="בחר רכיב באתר בלחיצה ימנית";
+ }
+
+ private void ToggleTheme_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked)return;
+  _policy.Theme=_policy.Theme=="midnight"?"light":"midnight"; ApplyTheme(); SavePolicy();
+ }
+ private void ApplyTheme() {
+  bool dark=_policy.Theme!="light";
+  SetBrush("WindowBrush",dark?System.Windows.Media.Color.FromRgb(11,16,32):System.Windows.Media.Color.FromRgb(239,243,249));
+  SetBrush("PanelBrush",dark?System.Windows.Media.Color.FromRgb(18,26,43):System.Windows.Media.Color.FromRgb(255,255,255));
+  SetBrush("TextBrush",dark?System.Windows.Media.Color.FromRgb(243,246,252):System.Windows.Media.Color.FromRgb(25,35,52));
+  SetBrush("MutedBrush",dark?System.Windows.Media.Color.FromRgb(145,160,184):System.Windows.Media.Color.FromRgb(91,106,128));
+  if(string.IsNullOrWhiteSpace(_policy.BackgroundImagePath)||!File.Exists(_policy.BackgroundImagePath))Background=(System.Windows.Media.Brush)Application.Current.Resources["WindowBrush"];
+ }
+ private static void SetBrush(string key,System.Windows.Media.Color color) {
+  if(Application.Current.Resources[key] is System.Windows.Media.SolidColorBrush brush)brush.Color=color;
+  else Application.Current.Resources[key]=new System.Windows.Media.SolidColorBrush(color);
+ }
+ private void ChooseBackground_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked)return;
+  var dialog=new OpenFileDialog{Filter="תמונות|*.png;*.jpg;*.jpeg;*.bmp;*.gif"};
+  if(dialog.ShowDialog()!=true)return;
+  try {
+   var folder=Path.Combine(DataFolder,"Assets");Directory.CreateDirectory(folder);
+   var ext=Path.GetExtension(dialog.FileName).ToLowerInvariant();
+   if(new FileInfo(dialog.FileName).Length>12*1024*1024)throw new InvalidDataException("תמונת הרקע גדולה מדי (מקסימום 12MB).");
+   var target=Path.Combine(folder,"background"+ext);File.Copy(dialog.FileName,target,true);
+   _policy.BackgroundImagePath=target;SavePolicy();ApplyBackground();
+  } catch(Exception ex){MessageBox.Show("לא ניתן להחיל את תמונת הרקע: "+ex.Message);}
+ }
+ private void ApplyBackground() {
+  try {
+   if(string.IsNullOrWhiteSpace(_policy.BackgroundImagePath)||!File.Exists(_policy.BackgroundImagePath))return;
+   var image=new System.Windows.Media.Imaging.BitmapImage();
+   image.BeginInit();image.CacheOption=System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;image.UriSource=new Uri(_policy.BackgroundImagePath);image.EndInit();image.Freeze();
+   Background=new System.Windows.Media.ImageBrush(image){Stretch=System.Windows.Media.Stretch.UniformToFill};
+  } catch(Exception ex){Log("טעינת תמונת רקע נכשלה",ex);}
  }
 
  private void Window_PreviewKeyDown(object sender,KeyEventArgs e) {
