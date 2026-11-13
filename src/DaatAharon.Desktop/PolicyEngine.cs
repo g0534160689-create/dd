@@ -36,6 +36,7 @@ public static class PolicyEngine
 
         if (host == "hopon.co.il" || host == "www.hopon.co.il")
         {
+            if ((policy.HopOnPaymentPaths ?? []).Any(item => PathMatches(path, item))) return true;
             string[] blocked = ["/charging-stations-map", "/about", "/ravkav", "/freeMonthly",
                 "/freeMonthlyOtef", "/accessibility", "/map", "/student"];
             return !blocked.Any(item => PathMatches(path, item));
