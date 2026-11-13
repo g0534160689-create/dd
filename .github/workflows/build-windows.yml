@@ -24,14 +24,27 @@ jobs:
         run: dotnet build DaatAharon.sln -c Release --no-restore
       - name: Publish self-contained
         run: dotnet publish src/DaatAharon.Desktop/DaatAharon.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/publish
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Create installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/installer | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=1.0.${{ github.run_number }}" installer/DaatAharon.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
       - name: Package portable
         run: Compress-Archive -Path artifacts/publish/* -DestinationPath artifacts/DaatAharon-portable-win-x64.zip
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          if (!(Test-Path artifacts/installer/DaatAharon-Setup-win-x64.exe)) { throw "Installer was not created" }
+          if ((Get-Item artifacts/installer/DaatAharon-Setup-win-x64.exe).Length -lt 1000000) { throw "Installer is unexpectedly small" }
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: DaatAharon-Windows
           path: |
-            artifacts/publish/
+            artifacts/installer/DaatAharon-Setup-win-x64.exe
             artifacts/DaatAharon-portable-win-x64.zip
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
@@ -40,4 +53,6 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
           name: דעת אהרן ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
           generate_release_notes: true
-          files: artifacts/DaatAharon-portable-win-x64.zip
+          files: |
+            artifacts/installer/DaatAharon-Setup-win-x64.exe
+            artifacts/DaatAharon-portable-win-x64.zip
