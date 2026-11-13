@@ -3,7 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
  Title="ישיבת דעת אהרן | המרכז הדיגיטלי" Height="900" Width="1500" MinHeight="700" MinWidth="1100"
- WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBrush}" FlowDirection="RightToLeft" FontFamily="Segoe UI">
+ WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBrush}" FlowDirection="RightToLeft" FontFamily="Segoe UI" PreviewKeyDown="Window_PreviewKeyDown">
  <Grid Margin="16">
   <Grid.ColumnDefinitions><ColumnDefinition Width="245"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Border Grid.Column="0" Background="{StaticResource PanelBrush}" CornerRadius="18" Padding="16">
@@ -13,11 +13,15 @@
      <Button Content="⌂   לוח בקרה" Style="{StaticResource NavButton}" Click="Dashboard_Click"/>
      <Button Content="▦   פורטל השירותים" Style="{StaticResource NavButton}" Click="Portal_Click"/>
      <Button Content="◈   דפדפן פנימי" Style="{StaticResource NavButton}" Click="Browser_Click"/>
-     <Button Content="⊘   חסימות והרשאות" Style="{StaticResource NavButton}" Click="Policies_Click"/>
-     <Button Content="▣   חלונות קופצים" Style="{StaticResource NavButton}" Click="Popups_Click"/>
-     <Button Content="✦   ניהול רכיבי עמוד" Style="{StaticResource NavButton}" Click="Elements_Click"/>
-     <Button Content="⚙   הגדרות וגיבוי" Style="{StaticResource NavButton}" Click="Settings_Click"/>
-     <Button Content="◷   יומן ואבחון" Style="{StaticResource NavButton}" Click="Diagnostics_Click"/>
+     <StackPanel x:Name="AdminNav" Visibility="Collapsed">
+      <TextBlock Text="אזור מנהל מאובטח" Foreground="#FFE0A8" FontWeight="Bold" Margin="10,18,0,6"/>
+      <Button Content="⊘   חסימות והרשאות" Style="{StaticResource NavButton}" Click="Policies_Click"/>
+      <Button Content="▣   חלונות קופצים" Style="{StaticResource NavButton}" Click="Popups_Click"/>
+      <Button Content="✦   ניהול רכיבי עמוד" Style="{StaticResource NavButton}" Click="Elements_Click"/>
+      <Button Content="⚙   הגדרות וגיבוי" Style="{StaticResource NavButton}" Click="Settings_Click"/>
+      <Button Content="◷   יומן ואבחון" Style="{StaticResource NavButton}" Click="Diagnostics_Click"/>
+      <Button Content="שינוי סיסמת מנהל" Style="{StaticResource NavButton}" Click="ChangeAdminPassword_Click"/>
+     </StackPanel>
     </StackPanel>
     <Border DockPanel.Dock="Bottom" Background="#1C2940" CornerRadius="12" Padding="12" Margin="0,18,0,0"><StackPanel><TextBlock Text="גרסה 2.0 · Windows x64" Foreground="White" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" Text="מאתחל שירותים..." Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/></StackPanel></Border>
    </DockPanel>
@@ -42,8 +46,8 @@
     <ScrollViewer x:Name="ManagementView" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"><StackPanel>
      <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="20" Margin="0,0,0,14"><StackPanel>
       <TextBlock Text="כלי ניהול" Foreground="White" FontSize="19" FontWeight="Bold"/><TextBlock Text="הגדרות נשמרות מקומית במחשב. שינויי מדיניות נבדקים לפני שמירה." Foreground="{StaticResource MutedBrush}" Margin="0,6,0,12"/>
-      <WrapPanel><Button Content="הוסף כלל חסימה" Click="AddBlockRule_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="הוסף דומיין מורשה" Click="AddAllowHost_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="הסר כלל מסומן" Click="RemoveRule_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="ייצא גיבוי" Click="ExportBackup_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="ייבא גיבוי" Click="ImportBackup_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="שמור שינויים" Click="SavePolicy_Click" Padding="14,8" Margin="0,0,8,8"/></WrapPanel>
-      <DataGrid x:Name="RulesGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="260" Background="#101827" Foreground="White" HeadersVisibility="Column"><DataGrid.Columns><DataGridTextColumn Header="דומיין" Binding="{Binding Host}" Width="2*"/><DataGridTextColumn Header="נתיב" Binding="{Binding Path}" Width="2*"/><DataGridCheckBoxColumn Header="מורשה" Binding="{Binding Allowed}" Width="*"/></DataGrid.Columns></DataGrid>
+      <WrapPanel><Button Content="אפשר רכיב מסומן" Click="AllowSelectedElement_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="הוסף כלל חסימה" Click="AddBlockRule_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="הוסף דומיין מורשה" Click="AddAllowHost_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="הסר כלל מסומן" Click="RemoveRule_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="ייצא גיבוי" Click="ExportBackup_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="ייבא גיבוי" Click="ImportBackup_Click" Padding="14,8" Margin="0,0,8,8"/><Button Content="שמור שינויים" Click="SavePolicy_Click" Padding="14,8" Margin="0,0,8,8"/></WrapPanel>
+      <CheckBox x:Name="AllowPopupsCheck" Content="אפשר חלונות קופצים מאותו דומיין מאושר" Foreground="White" Margin="0,0,0,12" Checked="PopupSettingChanged" Unchecked="PopupSettingChanged"/><DataGrid x:Name="RulesGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Height="260" Background="#101827" Foreground="White" HeadersVisibility="Column"><DataGrid.Columns><DataGridTextColumn Header="דומיין" Binding="{Binding Host}" Width="2*"/><DataGridTextColumn Header="נתיב" Binding="{Binding Path}" Width="2*"/><DataGridCheckBoxColumn Header="מורשה" Binding="{Binding Allowed}" Width="*"/></DataGrid.Columns></DataGrid>
      </StackPanel></Border>
      <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="20"><StackPanel><TextBlock Text="רכיבים שנבחרו לחסימה או להתאמה" Foreground="White" FontSize="18" FontWeight="Bold"/><DataGrid x:Name="ElementsGrid" AutoGenerateColumns="True" CanUserAddRows="False" IsReadOnly="True" Height="230" Margin="0,10,0,0"/></StackPanel></Border>
     </StackPanel></ScrollViewer>
