@@ -465,9 +465,32 @@ public partial class MainWindow : Window {
   if(path.Length>2048||path.Any(char.IsControl)){MessageBox.Show("הנתיב אינו תקין.");return;}
   _policy.Routes.Add(new(){Host=host,Path=path,Allowed=true}); SavePolicy(); RefreshGrids();
  }
- private void AddAllowHost_Click(object s,RoutedEventArgs e){string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין מורשה","הוספת הרשאה");if(string.IsNullOrWhiteSpace(host))return;_policy.AllowedHosts.Add(host.Trim().ToLowerInvariant());_policy.AllowedHosts=_policy.AllowedHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();SavePolicy();RefreshGrids();}
- private void RemoveRule_Click(object s,RoutedEventArgs e){if(RulesGrid.SelectedItem is RouteRule r)_policy.Routes.Remove(r);else if(ElementsGrid.SelectedItem is ElementRule el)_policy.Elements.Remove(el);SavePolicy();RefreshGrids();}
- private void SavePolicy_Click(object s,RoutedEventArgs e){SavePolicy();StatusText.Text="ההגדרות נשמרו בהצלחה";}
- private void ExportBackup_Click(object s,RoutedEventArgs e){var d=new SaveFileDialog{Filter="Daat Aharon backup (*.json)|*.json",FileName="DaatAharon-backup.json"};if(d.ShowDialog()==true)File.WriteAllText(d.FileName,JsonSerializer.Serialize(_policy,JsonOptions));}
- private void ImportBackup_Click(object s,RoutedEventArgs e){var d=new OpenFileDialog{Filter="Daat Aharon backup (*.json)|*.json"};if(d.ShowDialog()==true){try{_policy=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(d.FileName),JsonOptions)??new();SavePolicy();RefreshGrids();}catch(Exception ex){MessageBox.Show("קובץ הגיבוי אינו תקין: "+ex.Message);}}}
+ private void AddAllowHost_Click(object s,RoutedEventArgs e){
+  if(!_adminUnlocked)return;
+  string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין מורשה (למשל example.com)","הוספת הרשאה");
+  if(string.IsNullOrWhiteSpace(host))return;
+  host=host.Trim().TrimEnd('.').ToLowerInvariant();
+  if(Uri.CheckHostName(host)!=UriHostNameType.Dns){MessageBox.Show("יש להזין שם דומיין תקין.");return;}
+  _policy.AllowedHosts.Add(host);
+  _policy.AllowedHosts=_policy.AllowedHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+  SavePolicy();RefreshGrids();
+ }
+ private void RemoveRule_Click(object s,RoutedEventArgs e){
+  if(!_adminUnlocked)return;
+  if(RulesGrid.SelectedItem is RouteRule r)_policy.Routes.Remove(r);
+  else if(ElementsGrid.SelectedItem is ElementRule el)_policy.Elements.Remove(el);
+  else return;
+  SavePolicy();RefreshGrids();
+ }
+ private void SavePolicy_Click(object s,RoutedEventArgs e){if(!_adminUnlocked)return;SavePolicy();StatusText.Text="ההגדרות נשמרו בהצלחה";}
+ private void ExportBackup_Click(object s,RoutedEventArgs e){
+  if(!_adminUnlocked)return;
+  var d=new SaveFileDialog{Filter="Daat Aharon backup (*.json)|*.json",FileName="DaatAharon-backup.json"};
+  if(d.ShowDialog()==true)File.WriteAllText(d.FileName,JsonSerializer.Serialize(_policy,JsonOptions));
+ }
+ private void ImportBackup_Click(object s,RoutedEventArgs e){
+  if(!_adminUnlocked)return;
+  var d=new OpenFileDialog{Filter="Daat Aharon backup (*.json)|*.json"};
+  if(d.ShowDialog()==true){try{_policy=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(d.FileName),JsonOptions)??new();SavePolicy();RefreshGrids();}catch(Exception ex){MessageBox.Show("קובץ הגיבוי אינו תקין: "+ex.Message);}}
+ }
 }
