@@ -7,9 +7,9 @@
  <Grid Margin="16">
   <Grid.ColumnDefinitions><ColumnDefinition Width="245"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Border Grid.Column="0" Background="{StaticResource PanelBrush}" CornerRadius="18" Padding="16">
-   <DockPanel>
+   <DockPanel LastChildFill="False">
     <StackPanel DockPanel.Dock="Top" Margin="0,4,0,24"><TextBlock Text="דעת אהרן" Foreground="White" FontSize="27" FontWeight="Bold"/><TextBlock Text="המרכז הדיגיטלי וניהול השירותים" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,5,0,0"/></StackPanel>
-    <StackPanel>
+    <StackPanel DockPanel.Dock="Top">
      <Button Content="⌂   לוח בקרה" Style="{StaticResource NavButton}" Click="Dashboard_Click"/>
      <Button Content="▦   פורטל השירותים" Style="{StaticResource NavButton}" Click="Portal_Click"/>
      <Button Content="◈   דפדפן פנימי" Style="{StaticResource NavButton}" Click="Browser_Click"/>
