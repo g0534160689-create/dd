@@ -264,8 +264,8 @@ public partial class MainWindow : Window {
   } catch(Exception ex){Log("אימות סיסמת מנהל נכשל",ex);}
   MessageBox.Show("הסיסמה שגויה.","אימות מנהל",MessageBoxButton.OK,MessageBoxImage.Warning); return false;
  }
- private static string? PasswordPrompt(string title) {
-  var dialog=new Window{Title=title,Width=390,Height=190,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,FlowDirection=FlowDirection.RightToLeft,Background=System.Windows.Media.Brushes.White};
+ private string? PasswordPrompt(string title) {
+  var dialog=new Window{Owner=this,Title=title,Width=390,Height=190,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,FlowDirection=FlowDirection.RightToLeft,Background=System.Windows.Media.Brushes.White};
   var panel=new StackPanel{Margin=new Thickness(18)};
   panel.Children.Add(new TextBlock{Text=title,FontSize=16,Margin=new Thickness(0,0,0,12)});
   var box=new PasswordBox{Padding=new Thickness(8),Margin=new Thickness(0,0,0,12)}; panel.Children.Add(box);
@@ -313,9 +313,28 @@ public partial class MainWindow : Window {
  private void Back_Click(object s,RoutedEventArgs e){if(Browser.CoreWebView2?.CanGoBack==true)Browser.CoreWebView2.GoBack();}
  private void NavigateAddress_Click(object s,RoutedEventArgs e){if(Uri.TryCreate(AddressBox.Text,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2?.Navigate(uri.ToString());else StatusText.Text="הכתובת חסומה לפי מדיניות";}
  private void AddBlockRule_Click(object s,RoutedEventArgs e){
-  string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין לחסימה (למשל example.com)","הוספת חסימה"); if(string.IsNullOrWhiteSpace(host))return;
-  string path=Microsoft.VisualBasic.Interaction.InputBox("נתיב לחסימה (או / לכל הדומיין)","הוספת חסימה","/"); if(string.IsNullOrWhiteSpace(path))path="/"; if(!path.StartsWith('/'))path="/"+path;
-  _policy.Routes.Add(new(){Host=host.Trim().ToLowerInvariant(),Path=path,Allowed=false}); SavePolicy(); RefreshGrids();
+  if(!_adminUnlocked)return;
+  string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין לחסימה (למשל example.com)","הוספת חסימה");
+  if(string.IsNullOrWhiteSpace(host))return;
+  host=host.Trim().TrimEnd('.').ToLowerInvariant();
+  if(Uri.CheckHostName(host)==UriHostNameType.Unknown){MessageBox.Show("שם הדומיין אינו תקין.");return;}
+  string path=Microsoft.VisualBasic.Interaction.InputBox("נתיב לחסימה (או / לכל הדומיין)","הוספת חסימה","/");
+  if(string.IsNullOrWhiteSpace(path))path="/";
+  if(!path.StartsWith('/'))path="/"+path;
+  if(path.Length>2048||path.Any(char.IsControl)){MessageBox.Show("הנתיב אינו תקין.");return;}
+  _policy.Routes.Add(new(){Host=host,Path=path,Allowed=false}); SavePolicy(); RefreshGrids();
+ }
+ private void AddAllowPath_Click(object s,RoutedEventArgs e){
+  if(!_adminUnlocked)return;
+  string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין שבו לאשר נתיב","הרשאת נתיב");
+  if(string.IsNullOrWhiteSpace(host))return;
+  host=host.Trim().TrimEnd('.').ToLowerInvariant();
+  if(Uri.CheckHostName(host)==UriHostNameType.Unknown){MessageBox.Show("שם הדומיין אינו תקין.");return;}
+  string path=Microsoft.VisualBasic.Interaction.InputBox("הנתיב המדויק או תיקיית משנה","הרשאת נתיב","/");
+  if(string.IsNullOrWhiteSpace(path))return;
+  if(!path.StartsWith('/'))path="/"+path;
+  if(path.Length>2048||path.Any(char.IsControl)){MessageBox.Show("הנתיב אינו תקין.");return;}
+  _policy.Routes.Add(new(){Host=host,Path=path,Allowed=true}); SavePolicy(); RefreshGrids();
  }
  private void AddAllowHost_Click(object s,RoutedEventArgs e){string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין מורשה","הוספת הרשאה");if(string.IsNullOrWhiteSpace(host))return;_policy.AllowedHosts.Add(host.Trim().ToLowerInvariant());_policy.AllowedHosts=_policy.AllowedHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();SavePolicy();RefreshGrids();}
  private void RemoveRule_Click(object s,RoutedEventArgs e){if(RulesGrid.SelectedItem is RouteRule r)_policy.Routes.Remove(r);else if(ElementsGrid.SelectedItem is ElementRule el)_policy.Elements.Remove(el);SavePolicy();RefreshGrids();}
