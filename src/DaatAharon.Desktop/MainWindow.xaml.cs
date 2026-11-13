@@ -322,8 +322,9 @@ public partial class MainWindow : Window {
   if(string.IsNullOrWhiteSpace(_policy.BackgroundImagePath)||!File.Exists(_policy.BackgroundImagePath))Background=(System.Windows.Media.Brush)Application.Current.Resources["WindowBrush"];
  }
  private static void SetBrush(string key,System.Windows.Media.Color color) {
-  if(Application.Current.Resources[key] is System.Windows.Media.SolidColorBrush brush)brush.Color=color;
-  else Application.Current.Resources[key]=new System.Windows.Media.SolidColorBrush(color);
+  // WPF may freeze XAML resource brushes. Replace the resource instead of mutating a frozen Freezable.
+  // The corresponding XAML references use DynamicResource so the UI updates immediately.
+  Application.Current.Resources[key]=new System.Windows.Media.SolidColorBrush(color);
  }
  private void ChooseBackground_Click(object sender,RoutedEventArgs e) {
   if(!_adminUnlocked)return;
