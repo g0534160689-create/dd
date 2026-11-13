@@ -20,6 +20,7 @@
       <Button Content="✦   ניהול רכיבי עמוד" Style="{StaticResource NavButton}" Click="Elements_Click"/>
       <Button Content="⚙   הגדרות וגיבוי" Style="{StaticResource NavButton}" Click="Settings_Click"/>
       <Button Content="◷   יומן ואבחון" Style="{StaticResource NavButton}" Click="Diagnostics_Click"/>
+      <Button Content="כרטיס חכם — אבחון קורא" Style="{StaticResource NavButton}" Click="ReaderDiagnostics_Click"/>
       <Button Content="שינוי סיסמת מנהל" Style="{StaticResource NavButton}" Click="ChangeAdminPassword_Click"/>
      </StackPanel>
     </StackPanel>
