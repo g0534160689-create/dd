@@ -11,7 +11,7 @@ using Microsoft.Win32;
 namespace DaatAharon.Desktop;
 
 public sealed class RouteRule { public string Host { get; set; } = ""; public string Path { get; set; } = "/"; public bool Allowed { get; set; } }
-public sealed class ElementRule { public string Host { get; set; } = ""; public string Selector { get; set; } = ""; public bool Allowed { get; set; } }
+public sealed class ElementRule { public string Host { get; set; } = ""; public string Selector { get; set; } = ""; public bool Allowed { get; set; } public string ReplacementText { get; set; } = ""; public string ReplacementImagePath { get; set; } = ""; public string ReplacementImageFit { get; set; } = "contain"; }
 public sealed class LocalPolicy {
  public List<RouteRule> Routes { get; set; } = [];
  public List<string> AllowedHosts { get; set; } = ["donors.matara.pro","www.matara.pro","matara.pro","rishumon.net","tora.irom.co.il"];
@@ -32,7 +32,7 @@ public partial class MainWindow : Window {
  private bool _elementPicking;
  private bool _adminUnlocked;
  private const int PasswordIterations=310000;
- private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
+ private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");\n private static readonly string LegacyPasswordPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RavKavKiosk","admin-password.json");
  private static readonly PortalService[] Services=[
   new("nedarim","נדרים פלוס – אזור אישי","כניסה לאזור האישי","https://donors.matara.pro/login","שירותים"),
   new("torah-dileyh","תורה דיליה","סיכומי סוגיות וכתיבת חבורות","https://www.matara.pro/nedarimplus/online/?mosad=7005288","לימוד"),
@@ -162,9 +162,16 @@ public partial class MainWindow : Window {
 
  private async Task ApplyElementRulesAsync(){
   if(Browser.CoreWebView2 is null)return;
-  var selectors=_policy.Elements.Where(x=>x.Host.Equals(Browser.Source?.Host,StringComparison.OrdinalIgnoreCase)&&!x.Allowed).Select(x=>x.Selector).ToArray();
-  string json=JsonSerializer.Serialize(selectors);
-  await Browser.CoreWebView2.ExecuteScriptAsync("(()=>{for(const s of "+json+"){try{document.querySelectorAll(s).forEach(e=>e.remove())}catch{}}})()");
+  var rules=_policy.Elements.Where(x=>x.Host.Equals(Browser.Source?.Host,StringComparison.OrdinalIgnoreCase)).ToArray();
+  var payload=rules.Select(x=>new {
+   selector=x.Selector, allowed=x.Allowed, text=x.ReplacementText,
+   image=(!string.IsNullOrWhiteSpace(x.ReplacementImagePath)&&File.Exists(x.ReplacementImagePath))
+    ? "data:"+ (Path.GetExtension(x.ReplacementImagePath).ToLowerInvariant() is ".jpg" or ".jpeg" ? "image/jpeg" : "image/png") + ";base64,"+Convert.ToBase64String(File.ReadAllBytes(x.ReplacementImagePath))
+    : "",
+   fit=x.ReplacementImageFit=="cover"?"cover":"contain"
+  }).ToArray();
+  string json=JsonSerializer.Serialize(payload);
+  await Browser.CoreWebView2.ExecuteScriptAsync("(()=>{for(const r of "+json+"){try{document.querySelectorAll(r.selector).forEach(e=>{if(r.allowed)return;if(r.image){e.replaceChildren();const i=document.createElement('img');i.src=r.image;i.style.maxWidth='100%';i.style.maxHeight='100%';i.style.objectFit=r.fit;e.appendChild(i)}else if(r.text){e.textContent=r.text}else{e.remove()}})}catch{}}})()");
  }
  private async void PickElement_Click(object sender,RoutedEventArgs e){
   if(Browser.CoreWebView2 is null)return; _elementPicking=true;
