@@ -38,6 +38,7 @@ public partial class MainWindow : Window {
  private readonly List<string> _events=[];
  private bool _elementPicking;
  private bool _browserInitialized;
+ private CoreWebView2Environment? _webViewEnvironment;
  private bool _adminUnlocked;
  private const int PasswordIterations=310000;
  private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
@@ -113,8 +114,8 @@ public partial class MainWindow : Window {
  private async Task InitializeBrowserAsync() {
   try {
    string profile=Path.Combine(DataFolder,"WebView2"); Directory.CreateDirectory(profile);
-   var environment=await CoreWebView2Environment.CreateAsync(null,profile);
-   await Browser.EnsureCoreWebView2Async(environment);
+   _webViewEnvironment=await CoreWebView2Environment.CreateAsync(null,profile);
+   await Browser.EnsureCoreWebView2Async(_webViewEnvironment);
    Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled=true;
    Browser.CoreWebView2.Settings.AreDevToolsEnabled=false;
    Browser.CoreWebView2.Settings.IsStatusBarEnabled=false;
@@ -129,11 +130,36 @@ public partial class MainWindow : Window {
     }
     if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var target)||!IsAllowed(target)){e.Cancel=true;Log("ניווט נחסם: "+e.Uri);StatusText.Text="הניווט נחסם לפי מדיניות";}
    };
-   Browser.CoreWebView2.NewWindowRequested+=(_,e)=>{
-    e.Handled=true;
-    if(_policy.AllowSameOriginPopups&&Uri.TryCreate(e.Uri,UriKind.Absolute,out var u)&&Browser.Source is not null&&u.Scheme=="https"&&u.Host.Equals(Browser.Source.Host,StringComparison.OrdinalIgnoreCase)&&IsAllowed(u)){
-     Browser.CoreWebView2.Navigate(u.ToString()); Log("חלון קופץ מאותו דומיין אושר");
-    } else Log("חלון קופץ נחסם: "+e.Uri);
+   Browser.CoreWebView2.NewWindowRequested+=async (_,e)=>{
+    var deferral=e.GetDeferral();
+    Window? popupWindow=null;
+    try {
+     bool sourceAllowed=Browser.Source is not null&&IsAllowed(Browser.Source);
+     bool blankTarget=string.Equals(e.Uri,"about:blank",StringComparison.OrdinalIgnoreCase);
+     bool targetAllowed=Uri.TryCreate(e.Uri,UriKind.Absolute,out var popupUri)&&IsAllowed(popupUri);
+     bool sameOrigin=popupUri is not null&&Browser.Source is not null&&popupUri.Host.Equals(Browser.Source.Host,StringComparison.OrdinalIgnoreCase);
+     if(!_policy.AllowSameOriginPopups||!sourceAllowed||(!blankTarget&&(!targetAllowed||!sameOrigin))) {
+      e.Handled=true;Log("חלון קופץ נחסם לפי מדיניות: "+e.Uri);return;
+     }
+     var popupBrowser=new Microsoft.Web.WebView2.Wpf.WebView2();
+     popupWindow=new Window{Owner=this,Title="חלון שירות מאובטח",Width=1050,Height=760,MinWidth=650,MinHeight=450,WindowStartupLocation=WindowStartupLocation.CenterOwner,Content=popupBrowser,FlowDirection=FlowDirection.RightToLeft};
+     popupWindow.Closed+=(_,_)=>{try{popupBrowser.Dispose();}catch{}};
+     popupWindow.Show();
+     await popupBrowser.EnsureCoreWebView2Async(_webViewEnvironment);
+     popupBrowser.CoreWebView2.Settings.AreDevToolsEnabled=false;
+     popupBrowser.CoreWebView2.Settings.IsStatusBarEnabled=false;
+     popupBrowser.CoreWebView2.NavigationStarting+=(_,nav)=>{
+      if(string.Equals(nav.Uri,"about:blank",StringComparison.OrdinalIgnoreCase))return;
+      if(!Uri.TryCreate(nav.Uri,UriKind.Absolute,out var next)||!IsAllowed(next)){nav.Cancel=true;Log("ניווט בחלון קופץ נחסם: "+nav.Uri);}
+     };
+     e.NewWindow=popupBrowser.CoreWebView2;
+     e.Handled=true;
+     Log("חלון קופץ מאותו דומיין נפתח בחלון פנימי מאובטח");
+    } catch(Exception ex) {
+     e.Handled=true;
+     if(popupWindow is not null)try{popupWindow.Close();}catch{}
+     Log("פתיחת חלון קופץ נכשלה",ex);
+    } finally {deferral.Complete();}
    };
    Browser.CoreWebView2.WebMessageReceived+=(_,e)=>{
     if(!_elementPicking)return;
