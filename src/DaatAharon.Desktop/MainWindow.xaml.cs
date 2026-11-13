@@ -32,7 +32,8 @@ public partial class MainWindow : Window {
  private bool _elementPicking;
  private bool _adminUnlocked;
  private const int PasswordIterations=310000;
- private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");\n private static readonly string LegacyPasswordPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RavKavKiosk","admin-password.json");
+ private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
+ private static readonly string LegacyPasswordPath=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RavKavKiosk","admin-password.json");
  private static readonly PortalService[] Services=[
   new("nedarim","נדרים פלוס – אזור אישי","כניסה לאזור האישי","https://donors.matara.pro/login","שירותים"),
   new("torah-dileyh","תורה דיליה","סיכומי סוגיות וכתיבת חבורות","https://www.matara.pro/nedarimplus/online/?mosad=7005288","לימוד"),
