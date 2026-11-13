@@ -88,7 +88,9 @@ public static class PolicyEngine
     {
         if (string.IsNullOrWhiteSpace(configured)) return false;
         bool wildcard = configured.EndsWith('*');
-        string root = NormalizePath(wildcard ? configured[..^1] : configured) ?? "/";
+        string? normalized = NormalizePath(wildcard ? configured[..^1] : configured);
+        if (normalized is null) return false;
+        string root = normalized;
         if (root == "/") return true;
         return actual.Equals(root, StringComparison.OrdinalIgnoreCase) ||
                actual.StartsWith(root.TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase) ||
