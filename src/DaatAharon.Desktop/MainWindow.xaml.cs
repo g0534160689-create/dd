@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Windows.Input;
@@ -116,7 +117,15 @@ public partial class MainWindow : Window {
    Browser.CoreWebView2.Settings.AreDevToolsEnabled=false;
    Browser.CoreWebView2.Settings.IsStatusBarEnabled=false;
    Browser.CoreWebView2.NavigationStarting+=(_,e)=>{
-    if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)||!IsAllowed(uri)){e.Cancel=true;Log("ניווט נחסם: "+e.Uri);StatusText.Text="הניווט נחסם לפי מדיניות";}
+    if(Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri) && (uri.Scheme.Equals("ravkav",StringComparison.OrdinalIgnoreCase)||uri.Scheme.Equals("ravkavonline",StringComparison.OrdinalIgnoreCase))) {
+     e.Cancel=true;
+     if(Browser.Source?.Host.Equals("ravkavonline.co.il",StringComparison.OrdinalIgnoreCase)==true) {
+      try { Process.Start(new ProcessStartInfo(e.Uri){UseShellExecute=true}); Log("פרוטוקול קורא רב־קו הופעל"); }
+      catch(Exception ex){Log("הפעלת קורא רב־קו נכשלה",ex);MessageBox.Show("לא ניתן להפעיל את רכיב קורא הכרטיסים. בדוק שהרכיב הרשמי מותקן.");}
+     } else Log("ניסיון להפעיל פרוטוקול חיצוני ממקור לא מורשה נחסם");
+     return;
+    }
+    if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var target)||!IsAllowed(target)){e.Cancel=true;Log("ניווט נחסם: "+e.Uri);StatusText.Text="הניווט נחסם לפי מדיניות";}
    };
    Browser.CoreWebView2.NewWindowRequested+=(_,e)=>{
     e.Handled=true;
