@@ -20,6 +20,10 @@ public sealed class LocalPolicy {
  public List<string> AllowedHosts { get; set; } = ["donors.matara.pro","www.matara.pro","matara.pro","rishumon.net","tora.irom.co.il"];
  public List<ElementRule> Elements { get; set; } = [];
  public List<string> HiddenServiceIds { get; set; } = [];
+ public bool ShowRavKavPanel { get; set; } = true;
+ public bool ShowHopOnPanel { get; set; } = true;
+ public string ThemeId { get; set; } = "midnight";
+ public List<string> HopOnPaymentPaths { get; set; } = ["/pay"];
  public List<string> FavoriteServiceIds { get; set; } = [];
  public Dictionary<string,int> ClickCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
  public bool AllowSameOriginPopups { get; set; } = true;
@@ -27,6 +31,7 @@ public sealed class LocalPolicy {
  public string BackgroundImagePath { get; set; } = "";
 }
 public sealed record PortalService(string Id,string Title,string Subtitle,string Url,string Category);
+public sealed class PolicyExportBundle { public int FormatVersion { get; set; } = 1; public DateTime ExportedAtUtc { get; set; } = DateTime.UtcNow; public LocalPolicy Policy { get; set; } = new(); public Dictionary<string,string> ImageAssets { get; set; } = new(StringComparer.OrdinalIgnoreCase); }
 
 public partial class MainWindow : Window {
  private static readonly string DataFolder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"DaatAharon");
@@ -68,6 +73,7 @@ public partial class MainWindow : Window {
     var loaded=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(candidate),JsonOptions);
     if(loaded is not null) {
      if(!string.Equals(candidate,PolicyPath,StringComparison.OrdinalIgnoreCase)) {
+      if(!string.IsNullOrWhiteSpace(loaded.ThemeId))loaded.Theme=loaded.ThemeId;
       File.WriteAllText(PolicyPath,JsonSerializer.Serialize(loaded,JsonOptions));
       LogStatic("הגדרות מהתוכנה הישנה הועברו בהצלחה",null);
      }
@@ -79,7 +85,7 @@ public partial class MainWindow : Window {
  }
  private static void LogStatic(string message,Exception? ex=null) { try { Directory.CreateDirectory(DataFolder); File.AppendAllText(Path.Combine(DataFolder,"activity.log"),$"[{DateTime.Now:O}] {message} {ex}\n"); } catch {} }
  private void SavePolicy() {
-  Directory.CreateDirectory(DataFolder); string tmp=PolicyPath+".tmp";
+  Directory.CreateDirectory(DataFolder); _policy.ThemeId=_policy.Theme; string tmp=PolicyPath+".tmp";
   File.WriteAllText(tmp,JsonSerializer.Serialize(_policy,JsonOptions));
   if(File.Exists(PolicyPath))File.Copy(PolicyPath,PolicyPath+".bak",true);
   File.Move(tmp,PolicyPath,true); RefreshCounts(); Log("מדיניות נשמרה");
@@ -88,6 +94,8 @@ public partial class MainWindow : Window {
   PortalCards.Children.Clear();
   string search=PortalSearchBox?.Text?.Trim()??"";
   var visible=Services.Where(service=>!_policy.HiddenServiceIds.Contains(service.Id,StringComparer.OrdinalIgnoreCase))
+   .Where(service=>service.Id!="hopon"||_policy.ShowHopOnPanel)
+   .Where(service=>service.Id!="ravkav"||_policy.ShowRavKavPanel)
    .Where(service=>string.IsNullOrWhiteSpace(search)||(service.Title+" "+service.Subtitle+" "+service.Category).Contains(search,StringComparison.CurrentCultureIgnoreCase))
    .OrderByDescending(service=>_policy.FavoriteServiceIds.Contains(service.Id,StringComparer.OrdinalIgnoreCase))
    .ThenBy(service=>service.Title);
@@ -109,7 +117,9 @@ public partial class MainWindow : Window {
   }
  }
  private void PortalSearch_Changed(object sender,TextChangedEventArgs e){if(PortalCards is not null)BuildPortal();}
- private void RestoreHiddenServices_Click(object sender,RoutedEventArgs e){if(!_adminUnlocked)return;_policy.HiddenServiceIds.Clear();SavePolicy();BuildPortal();MessageBox.Show("כל השירותים שהוסתרו הוחזרו לפורטל.");}
+ private void RestoreHiddenServices_Click(object sender,RoutedEventArgs e){if(!_adminUnlocked)return;_policy.HiddenServiceIds.Clear();_policy.ShowHopOnPanel=true;_policy.ShowRavKavPanel=true;SavePolicy();BuildPortal();MessageBox.Show("כל השירותים שהוסתרו הוחזרו לפורטל.");}
+ private void ToggleHopOnPanel_Click(object sender,RoutedEventArgs e){if(!_adminUnlocked)return;_policy.ShowHopOnPanel=!_policy.ShowHopOnPanel;SavePolicy();BuildPortal();}
+ private void ToggleRavKavPanel_Click(object sender,RoutedEventArgs e){if(!_adminUnlocked)return;_policy.ShowRavKavPanel=!_policy.ShowRavKavPanel;SavePolicy();BuildPortal();}
 
  private async Task InitializeBrowserAsync() {
   try {
@@ -512,12 +522,62 @@ public partial class MainWindow : Window {
  private void SavePolicy_Click(object s,RoutedEventArgs e){if(!_adminUnlocked)return;SavePolicy();StatusText.Text="ההגדרות נשמרו בהצלחה";}
  private void ExportBackup_Click(object s,RoutedEventArgs e){
   if(!_adminUnlocked)return;
-  var d=new SaveFileDialog{Filter="Daat Aharon backup (*.json)|*.json",FileName="DaatAharon-backup.json"};
-  if(d.ShowDialog()==true)File.WriteAllText(d.FileName,JsonSerializer.Serialize(_policy,JsonOptions));
+  var dialog=new SaveFileDialog{Filter="Daat Aharon backup (*.json)|*.json",FileName="DaatAharon-backup.json"};
+  if(dialog.ShowDialog()!=true)return;
+  try {
+   var bundle=new PolicyExportBundle{Policy=JsonSerializer.Deserialize<LocalPolicy>(JsonSerializer.Serialize(_policy,JsonOptions),JsonOptions)??new LocalPolicy()};
+   long total=0;
+   foreach(var element in bundle.Policy.Elements){
+    string path=element.ReplacementImagePath;
+    if(string.IsNullOrWhiteSpace(path)||!File.Exists(path)){element.ReplacementImagePath="";continue;}
+    var info=new FileInfo(path);
+    if(info.Length>8*1024*1024)throw new InvalidDataException("תמונה חורגת ממגבלת 8MB: "+Path.GetFileName(path));
+    total+=info.Length;if(total>40*1024*1024)throw new InvalidDataException("סך התמונות לייצוא חורג מ־40MB.");
+    if(!bundle.ImageAssets.ContainsKey(path))bundle.ImageAssets[path]=Convert.ToBase64String(File.ReadAllBytes(path));
+   }
+   string temp=dialog.FileName+".tmp";
+   File.WriteAllText(temp,JsonSerializer.Serialize(bundle,JsonOptions));
+   File.Move(temp,dialog.FileName,true);
+   MessageBox.Show("הגיבוי נשמר כולל הגדרות ותמונות.");
+  } catch(Exception ex){MessageBox.Show("ייצוא הגיבוי נכשל: "+ex.Message);}
  }
  private void ImportBackup_Click(object s,RoutedEventArgs e){
   if(!_adminUnlocked)return;
-  var d=new OpenFileDialog{Filter="Daat Aharon backup (*.json)|*.json"};
-  if(d.ShowDialog()==true){try{_policy=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(d.FileName),JsonOptions)??new();SavePolicy();RefreshGrids();}catch(Exception ex){MessageBox.Show("קובץ הגיבוי אינו תקין: "+ex.Message);}}
+  var dialog=new OpenFileDialog{Filter="Daat Aharon backup (*.json)|*.json"};
+  if(dialog.ShowDialog()!=true)return;
+  try {
+   var info=new FileInfo(dialog.FileName);
+   if(!info.Exists||info.Length>50*1024*1024)throw new InvalidDataException("קובץ הגיבוי גדול מדי או לא תקין.");
+   using var document=JsonDocument.Parse(File.ReadAllText(dialog.FileName));
+   LocalPolicy imported;
+   if(document.RootElement.TryGetProperty("Policy",out _)){
+    var bundle=JsonSerializer.Deserialize<PolicyExportBundle>(File.ReadAllText(dialog.FileName),JsonOptions)??throw new InvalidDataException("קובץ גיבוי ריק.");
+    if(bundle.FormatVersion!=1||bundle.Policy is null)throw new InvalidDataException("גרסת קובץ הגיבוי אינה נתמכת.");
+    imported=bundle.Policy;
+    if(imported.Routes.Count>5000||imported.Elements.Count>5000||imported.AllowedHosts.Count>1000)throw new InvalidDataException("קובץ הגיבוי מכיל יותר מדי כללים.");
+    string imageFolder=Path.Combine(DataFolder,"ImportedImages");Directory.CreateDirectory(imageFolder);
+    long total=0;
+    foreach(var element in imported.Elements){
+     if(string.IsNullOrWhiteSpace(element.ReplacementImagePath))continue;
+     if(!bundle.ImageAssets.TryGetValue(element.ReplacementImagePath,out var encoded)){element.ReplacementImagePath="";continue;}
+     string ext=Path.GetExtension(element.ReplacementImagePath).ToLowerInvariant();
+     if(ext is not (".png" or ".jpg" or ".jpeg" or ".webp" or ".gif" or ".bmp"))throw new InvalidDataException("סיומת תמונה אינה נתמכת.");
+     byte[] bytes=Convert.FromBase64String(encoded);
+     if(bytes.Length==0||bytes.Length>8*1024*1024)throw new InvalidDataException("תמונה חורגת ממגבלת 8MB.");
+     total+=bytes.Length;if(total>40*1024*1024)throw new InvalidDataException("סך התמונות חורג מ־40MB.");
+     string target=Path.Combine(imageFolder,Guid.NewGuid().ToString("N")+ext);File.WriteAllBytes(target,bytes);element.ReplacementImagePath=target;
+    }
+   } else imported=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(dialog.FileName),JsonOptions)??throw new InvalidDataException("קובץ הגיבוי ריק או פגום.");
+   foreach(var route in imported.Routes){
+    string host=route.Host.StartsWith("*.")?route.Host[2..]:route.Host;
+    if(Uri.CheckHostName(host)==UriHostNameType.Unknown||string.IsNullOrWhiteSpace(route.Path)||!route.Path.StartsWith('/')||route.Path.Length>2048||route.Path.Any(char.IsControl))throw new InvalidDataException("נמצא כלל כתובת לא תקין.");
+   }
+   foreach(var element in imported.Elements){
+    string host=element.Host.StartsWith("*.")?element.Host[2..]:element.Host;
+    if(Uri.CheckHostName(host)==UriHostNameType.Unknown||string.IsNullOrWhiteSpace(element.Selector)||element.Selector.Length>2048||element.Selector.Any(char.IsControl)||(element.ReplacementText?.Length??0)>1000)throw new InvalidDataException("נמצא כלל רכיב לא תקין.");
+   }
+   _policy=imported;SavePolicy();RefreshGrids();BuildPortal();ApplyTheme();ApplyBackground();
+   MessageBox.Show("הגיבוי נטען בהצלחה.");
+  } catch(Exception ex){MessageBox.Show("ייבוא הגיבוי נכשל: "+ex.Message);}
  }
 }
