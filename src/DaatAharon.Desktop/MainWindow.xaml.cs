@@ -1,8 +1,155 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Win32;
 
 namespace DaatAharon.Desktop;
 
-public partial class MainWindow : Window
-{
-    public MainWindow() => InitializeComponent();
+public sealed class RouteRule { public string Host { get; set; } = ""; public string Path { get; set; } = "/"; public bool Allowed { get; set; } }
+public sealed class ElementRule { public string Host { get; set; } = ""; public string Selector { get; set; } = ""; public bool Allowed { get; set; } }
+public sealed class LocalPolicy {
+ public List<RouteRule> Routes { get; set; } = [];
+ public List<string> AllowedHosts { get; set; } = ["donors.matara.pro","www.matara.pro","matara.pro","rishumon.net","tora.irom.co.il"];
+ public List<ElementRule> Elements { get; set; } = [];
+ public bool AllowSameOriginPopups { get; set; } = true;
+ public string Theme { get; set; } = "midnight";
+}
+public sealed record PortalService(string Id,string Title,string Subtitle,string Url,string Category);
+
+public partial class MainWindow : Window {
+ private static readonly string DataFolder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"DaatAharon");
+ private static readonly string PolicyPath=Path.Combine(DataFolder,"policy.json");
+ private static readonly JsonSerializerOptions JsonOptions=new(){WriteIndented=true,PropertyNameCaseInsensitive=true};
+ private LocalPolicy _policy=LoadPolicy();
+ private readonly ObservableCollection<RouteRule> _rules=[];
+ private readonly ObservableCollection<ElementRule> _elements=[];
+ private readonly List<string> _events=[];
+ private bool _elementPicking;
+ private static readonly PortalService[] Services=[
+  new("nedarim","נדרים פלוס – אזור אישי","כניסה לאזור האישי","https://donors.matara.pro/login","שירותים"),
+  new("torah-dileyh","תורה דיליה","סיכומי סוגיות וכתיבת חבורות","https://www.matara.pro/nedarimplus/online/?mosad=7005288","לימוד"),
+  new("prints","הטענת הדפסות","טעינת יתרת צילום והדפסה","https://www.matara.pro/nedarimplus/Forms/4488.html?MasofId=&ClientId=&Zeout=&Version=1","שירותים"),
+  new("dirshu","מבחני דרשו","ציונים, מועדי בחינות והרשמה","https://matara.pro/nedarimplus/online/?mosad=7005954","מבחנים"),
+  new("kivro","ישיבה על קברו","מפעל הלימוד וההנצחה","https://www.matara.pro/nedarimplus/v6/Mokirim14.html?Version=1","לימוד"),
+  new("ladaat","מבחני לדעת","מגוון מבחנים","https://www.matara.pro/nedarimplus/Forms/976.html?MasofId=&ClientId=&Zeout=&Version=8","מבחנים"),
+  new("siach","שיח התורה","מבחנים בכל סגנונות התורה","https://rishumon.net/SiachAtorah.html","מבחנים"),
+  new("torah-written","תורה שבכתב","עיון בטקסטים, מפרשים ודקדוק","https://tora.irom.co.il/?Version=17","לימוד"),
+  new("hopon","טעינת רב־קו HopOn","פתיחת שירות הטעינה","https://hopon.co.il/read","רב־קו"),
+  new("ravkav","רב־קו אונליין","חיבור לכרטיס וטעינה","https://ravkavonline.co.il/he/store/connect","רב־קו")
+ ];
+ public MainWindow() {
+  InitializeComponent(); RulesGrid.ItemsSource=_rules; ElementsGrid.ItemsSource=_elements;
+  BuildPortal(); RefreshCounts(); ClockText.Text=DateTime.Now.ToString("dddd, dd MMMM yyyy · HH:mm");
+  Loaded+=async (_,_)=>await InitializeBrowserAsync();
+  Closing+=(_,_)=>{try{Browser.Dispose();}catch{}};
+ }
+ private static LocalPolicy LoadPolicy() {
+  try { Directory.CreateDirectory(DataFolder); if(File.Exists(PolicyPath)) return JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(PolicyPath),JsonOptions)??new(); }
+  catch(Exception ex){LogStatic("טעינת מדיניות נכשלה",ex);}
+  return new LocalPolicy();
+ }
+ private static void LogStatic(string message,Exception? ex=null) { try { Directory.CreateDirectory(DataFolder); File.AppendAllText(Path.Combine(DataFolder,"activity.log"),$"[{DateTime.Now:O}] {message} {ex}\n"); } catch {} }
+ private void SavePolicy() {
+  Directory.CreateDirectory(DataFolder); string tmp=PolicyPath+".tmp";
+  File.WriteAllText(tmp,JsonSerializer.Serialize(_policy,JsonOptions));
+  if(File.Exists(PolicyPath))File.Copy(PolicyPath,PolicyPath+".bak",true);
+  File.Move(tmp,PolicyPath,true); RefreshCounts(); Log("מדיניות נשמרה");
+ }
+ private void BuildPortal() {
+  foreach(var service in Services) {
+   var panel=new StackPanel();
+   panel.Children.Add(new TextBlock{Text=service.Title,FontSize=16,FontWeight=FontWeights.Bold,Foreground=System.Windows.Media.Brushes.White});
+   panel.Children.Add(new TextBlock{Text=service.Subtitle,Foreground=System.Windows.Media.Brushes.LightGray,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,5,0,0)});
+   var button=new Button{Content=panel,Tag=service,Padding=new Thickness(16),Margin=new Thickness(0,0,10,10),Background=new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(27,43,66)),BorderThickness=new Thickness(0),HorizontalContentAlignment=HorizontalAlignment.Stretch};
+   button.Click+=(_,_)=>OpenService((PortalService)button.Tag); PortalCards.Children.Add(button);
+  }
+ }
+ private async Task InitializeBrowserAsync() {
+  try {
+   string profile=Path.Combine(DataFolder,"WebView2"); Directory.CreateDirectory(profile);
+   var environment=await CoreWebView2Environment.CreateAsync(null,profile);
+   await Browser.EnsureCoreWebView2Async(environment);
+   Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled=true;
+   Browser.CoreWebView2.Settings.AreDevToolsEnabled=false;
+   Browser.CoreWebView2.Settings.IsStatusBarEnabled=false;
+   Browser.CoreWebView2.NavigationStarting+=(_,e)=>{
+    if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)||!IsAllowed(uri)){e.Cancel=true;Log("ניווט נחסם: "+e.Uri);StatusText.Text="הניווט נחסם לפי מדיניות";}
+   };
+   Browser.CoreWebView2.NewWindowRequested+=(_,e)=>{
+    e.Handled=true;
+    if(_policy.AllowSameOriginPopups&&Uri.TryCreate(e.Uri,UriKind.Absolute,out var u)&&Browser.Source is not null&&u.Scheme=="https"&&u.Host.Equals(Browser.Source.Host,StringComparison.OrdinalIgnoreCase)&&IsAllowed(u)){
+     Browser.CoreWebView2.Navigate(u.ToString()); Log("חלון קופץ מאותו דומיין אושר");
+    } else Log("חלון קופץ נחסם: "+e.Uri);
+   };
+   Browser.CoreWebView2.WebMessageReceived+=(_,e)=>{
+    if(!_elementPicking)return;
+    try {
+     using var data=JsonDocument.Parse(e.WebMessageAsJson);
+     string selector=data.RootElement.GetProperty("selector").GetString()??"";
+     if(selector.Length==0||selector.Length>2000)return;
+     _elements.Add(new ElementRule{Host=Browser.Source?.Host??"",Selector=selector,Allowed=false});
+     _elementPicking=false; _=ApplyElementRulesAsync(); ShowManagement("ניהול רכיבי עמוד"); SavePolicy();
+    } catch(Exception ex){Log("בחירת רכיב נכשלה",ex);}
+   };
+   Browser.CoreWebView2.DOMContentLoaded+=async (_,_)=>await ApplyElementRulesAsync();
+   Browser.CoreWebView2.Navigate("https://hopon.co.il/read"); StatusText.Text="הדפדפן המאובטח מוכן";
+  } catch(Exception ex){Log("אתחול WebView2 נכשל",ex);StatusText.Text="WebView2 לא זמין — בדוק התקנה";}
+ }
+ private bool IsAllowed(Uri uri) {
+  if(uri.Scheme!="https"||!uri.IsDefaultPort||!string.IsNullOrEmpty(uri.UserInfo))return false;
+  var rule=_policy.Routes.Where(r=>r.Host.Equals(uri.Host,StringComparison.OrdinalIgnoreCase)&&PathMatches(uri.AbsolutePath,r.Path)).OrderByDescending(r=>r.Path.Length).FirstOrDefault();
+  if(rule is not null)return rule.Allowed;
+  if(uri.Host.Equals("ravkavonline.co.il",StringComparison.OrdinalIgnoreCase))return uri.AbsolutePath.Equals("/he/store/connect",StringComparison.OrdinalIgnoreCase);
+  if(uri.Host.Equals("hopon.co.il",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("www.hopon.co.il",StringComparison.OrdinalIgnoreCase)) {
+   string[] blocked=["/charging-stations-map","/about","/ravkav","/freeMonthly","/freeMonthlyOtef","/accessibility","/map","/student"];
+   return !blocked.Any(p=>PathMatches(uri.AbsolutePath,p));
+  }
+  return _policy.AllowedHosts.Contains(uri.Host,StringComparer.OrdinalIgnoreCase);
+ }
+ private static bool PathMatches(string actual,string root)=>root=="/"||actual.Equals(root,StringComparison.OrdinalIgnoreCase)||actual.StartsWith(root.TrimEnd('/')+"/",StringComparison.OrdinalIgnoreCase);
+ private void OpenService(PortalService service) {
+  ShowBrowser(); AddressBox.Text=service.Url;
+  if(Browser.CoreWebView2 is not null&&Uri.TryCreate(service.Url,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2.Navigate(service.Url);
+  else StatusText.Text="הכתובת אינה מורשית או שהדפדפן עדיין נטען";
+ }
+ private void ShowBrowser(){DashboardView.Visibility=Visibility.Collapsed;ManagementView.Visibility=Visibility.Collapsed;BrowserView.Visibility=Visibility.Visible;PageTitle.Text="דפדפן פנימי";PageSubtitle.Text="גלישה בתוך התוכנה בהתאם למדיניות ההרשאות";}
+ private void ShowManagement(string title){DashboardView.Visibility=Visibility.Collapsed;BrowserView.Visibility=Visibility.Collapsed;ManagementView.Visibility=Visibility.Visible;PageTitle.Text=title;PageSubtitle.Text="ניהול מקומי — השינויים נשמרים במחשב זה";RefreshGrids();}
+ private void ShowDashboard(){DashboardView.Visibility=Visibility.Visible;BrowserView.Visibility=Visibility.Collapsed;ManagementView.Visibility=Visibility.Collapsed;PageTitle.Text="לוח בקרה";PageSubtitle.Text="כל השירותים וכלי הניהול במקום אחד";}
+ private void RefreshGrids(){_rules.Clear();foreach(var r in _policy.Routes)_rules.Add(r);_elements.Clear();foreach(var e in _policy.Elements)_elements.Add(e);}
+ private void RefreshCounts(){RulesCount.Text=_policy.Routes.Count.ToString();ServicesCount.Text=Services.Length.ToString();EventsCount.Text=_events.Count.ToString();}
+ private void Log(string message,Exception? ex=null){_events.Insert(0,$"[{DateTime.Now:HH:mm:ss}] {message} {ex?.Message}");if(_events.Count>500)_events.RemoveAt(_events.Count-1);LogStatic(message,ex);RefreshCounts();}
+ private async Task ApplyElementRulesAsync(){
+  if(Browser.CoreWebView2 is null)return;
+  var selectors=_policy.Elements.Where(x=>x.Host.Equals(Browser.Source?.Host,StringComparison.OrdinalIgnoreCase)&&!x.Allowed).Select(x=>x.Selector).ToArray();
+  string json=JsonSerializer.Serialize(selectors);
+  await Browser.CoreWebView2.ExecuteScriptAsync("(()=>{for(const s of "+json+"){try{document.querySelectorAll(s).forEach(e=>e.remove())}catch{}}})()");
+ }
+ private async void PickElement_Click(object sender,RoutedEventArgs e){
+  if(Browser.CoreWebView2 is null)return; _elementPicking=true;
+  await Browser.CoreWebView2.ExecuteScriptAsync(@"(()=>{if(window.__daatPicker)return;window.__daatPicker=true;let last=null;document.addEventListener('mouseover',e=>{if(last)last.style.outline='';last=e.target;last.style.outline='3px solid #ffb347'},{capture:true});document.addEventListener('contextmenu',e=>{e.preventDefault();const path=[];let n=e.target;while(n&&n.nodeType===1&&path.length<8){let p=n.tagName.toLowerCase();if(n.id){p+='#'+CSS.escape(n.id);path.unshift(p);break;}const siblings=[...n.parentElement.children].filter(x=>x.tagName===n.tagName);if(siblings.length>1)p+=':nth-of-type('+(siblings.indexOf(n)+1)+')';path.unshift(p);n=n.parentElement;}chrome.webview.postMessage({selector:path.join(' > ')})},{capture:true})})()");
+  StatusText.Text="בחר רכיב באתר בלחיצה ימנית";
+ }
+ private void Dashboard_Click(object s,RoutedEventArgs e)=>ShowDashboard();
+ private void Portal_Click(object s,RoutedEventArgs e)=>ShowDashboard();
+ private void Browser_Click(object s,RoutedEventArgs e)=>ShowBrowser();
+ private void Policies_Click(object s,RoutedEventArgs e)=>ShowManagement("חסימות והרשאות");
+ private void Popups_Click(object s,RoutedEventArgs e)=>ShowManagement("ניהול חלונות קופצים");
+ private void Elements_Click(object s,RoutedEventArgs e)=>ShowManagement("ניהול רכיבי עמוד");
+ private void Settings_Click(object s,RoutedEventArgs e)=>ShowManagement("הגדרות וגיבוי");
+ private void Diagnostics_Click(object s,RoutedEventArgs e)=>ShowManagement("יומן ואבחון");
+ private void Back_Click(object s,RoutedEventArgs e){if(Browser.CoreWebView2?.CanGoBack==true)Browser.CoreWebView2.GoBack();}
+ private void NavigateAddress_Click(object s,RoutedEventArgs e){if(Uri.TryCreate(AddressBox.Text,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2?.Navigate(uri.ToString());else StatusText.Text="הכתובת חסומה לפי מדיניות";}
+ private void AddBlockRule_Click(object s,RoutedEventArgs e){
+  string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין לחסימה (למשל example.com)","הוספת חסימה"); if(string.IsNullOrWhiteSpace(host))return;
+  string path=Microsoft.VisualBasic.Interaction.InputBox("נתיב לחסימה (או / לכל הדומיין)","הוספת חסימה","/"); if(string.IsNullOrWhiteSpace(path))path="/"; if(!path.StartsWith('/'))path="/"+path;
+  _policy.Routes.Add(new(){Host=host.Trim().ToLowerInvariant(),Path=path,Allowed=false}); SavePolicy(); RefreshGrids();
+ }
+ private void AddAllowHost_Click(object s,RoutedEventArgs e){string host=Microsoft.VisualBasic.Interaction.InputBox("דומיין מורשה","הוספת הרשאה");if(string.IsNullOrWhiteSpace(host))return;_policy.AllowedHosts.Add(host.Trim().ToLowerInvariant());_policy.AllowedHosts=_policy.AllowedHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();SavePolicy();RefreshGrids();}
+ private void RemoveRule_Click(object s,RoutedEventArgs e){if(RulesGrid.SelectedItem is RouteRule r)_policy.Routes.Remove(r);else if(ElementsGrid.SelectedItem is ElementRule el)_policy.Elements.Remove(el);SavePolicy();RefreshGrids();}
+ private void SavePolicy_Click(object s,RoutedEventArgs e){SavePolicy();StatusText.Text="ההגדרות נשמרו בהצלחה";}
+ private void ExportBackup_Click(object s,RoutedEventArgs e){var d=new SaveFileDialog{Filter="Daat Aharon backup (*.json)|*.json",FileName="DaatAharon-backup.json"};if(d.ShowDialog()==true)File.WriteAllText(d.FileName,JsonSerializer.Serialize(_policy,JsonOptions));}
+ private void ImportBackup_Click(object s,RoutedEventArgs e){var d=new OpenFileDialog{Filter="Daat Aharon backup (*.json)|*.json"};if(d.ShowDialog()==true){try{_policy=JsonSerializer.Deserialize<LocalPolicy>(File.ReadAllText(d.FileName),JsonOptions)??new();SavePolicy();RefreshGrids();}catch(Exception ex){MessageBox.Show("קובץ הגיבוי אינו תקין: "+ex.Message);}}}
 }
