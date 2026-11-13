@@ -20,7 +20,8 @@ public sealed class LocalPolicy {
  public List<string> FavoriteServiceIds { get; set; } = [];
  public Dictionary<string,int> ClickCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
  public bool AllowSameOriginPopups { get; set; } = true;
- public string Theme { get; set; } = "midnight";\n public string BackgroundImagePath { get; set; } = "";
+ public string Theme { get; set; } = "midnight";
+ public string BackgroundImagePath { get; set; } = "";
 }
 public sealed record PortalService(string Id,string Title,string Subtitle,string Url,string Category);
 
