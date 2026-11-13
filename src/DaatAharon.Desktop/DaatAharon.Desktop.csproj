@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>DaatAharon</AssemblyName>
     <RootNamespace>DaatAharon.Desktop</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>2.0.0</Version>
     <Platforms>x64</Platforms>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
