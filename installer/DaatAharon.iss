@@ -31,6 +31,7 @@ Name: "desktopicon"; Description: "יצירת קיצור דרך בשולחן ה�
 
 [Files]
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
@@ -47,7 +48,7 @@ begin
   Result := False;
   RuntimeVersion := '';
   if RegQueryStringValue(HKLM64,
-       'SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+       'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
        'pv', RuntimeVersion) and (RuntimeVersion <> '') and (RuntimeVersion <> '0.0.0.0') then
   begin
     Result := True;
@@ -55,7 +56,7 @@ begin
   end;
   RuntimeVersion := '';
   if RegQueryStringValue(HKCU,
-       'Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+       'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
        'pv', RuntimeVersion) and (RuntimeVersion <> '') and (RuntimeVersion <> '0.0.0.0') then
     Result := True;
 end;
@@ -67,7 +68,7 @@ var
 begin
   if (CurStep <> ssPostInstall) or IsWebView2RuntimeInstalled then
     Exit;
-  RuntimeInstaller := ExpandConstant('{tmp}\\MicrosoftEdgeWebView2RuntimeInstallerX64.exe');
+  RuntimeInstaller := ExpandConstant('{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe');
   ExtractTemporaryFile('MicrosoftEdgeWebView2RuntimeInstallerX64.exe');
   if not Exec(RuntimeInstaller, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
