@@ -21,7 +21,7 @@ jobs:
       - name: Restore
         run: dotnet restore DaatAharon.sln
       - name: Build
-        run: dotnet build DaatAharon.sln -c Release --no-restore -p:Platform=x64
+        run: dotnet build DaatAharon.sln -c Release --no-restore
       - name: Publish self-contained
         run: dotnet publish src/DaatAharon.Desktop/DaatAharon.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o artifacts/publish
       - name: Package portable
