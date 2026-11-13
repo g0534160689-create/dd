@@ -139,7 +139,7 @@ public partial class MainWindow : Window {
      using var data=JsonDocument.Parse(e.WebMessageAsJson);
      string selector=data.RootElement.GetProperty("selector").GetString()??"";
      if(selector.Length==0||selector.Length>2000)return;
-     _elements.Add(new ElementRule{Host=Browser.Source?.Host??"",Selector=selector,Allowed=false});
+     var selectedRule=new ElementRule{Host=Browser.Source?.Host??"",Selector=selector,Allowed=false}; _policy.Elements.Add(selectedRule);
      _elementPicking=false; _=ApplyElementRulesAsync(); ShowManagement("ניהול רכיבי עמוד"); SavePolicy();
     } catch(Exception ex){Log("בחירת רכיב נכשלה",ex);}
    };
@@ -147,19 +147,7 @@ public partial class MainWindow : Window {
    Browser.CoreWebView2.Navigate("https://hopon.co.il/read"); StatusText.Text="הדפדפן המאובטח מוכן";
   } catch(Exception ex){Log("אתחול WebView2 נכשל",ex);StatusText.Text="WebView2 לא זמין — בדוק התקנה";}
  }
- private bool IsAllowed(Uri uri) {
-  if(uri.Scheme!="https"||!uri.IsDefaultPort||!string.IsNullOrEmpty(uri.UserInfo))return false;
-  if(uri.Host.Equals("pay.google.com",StringComparison.OrdinalIgnoreCase)||uri.Host.EndsWith(".pay.google.com",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("payments.google.com",StringComparison.OrdinalIgnoreCase))return false;
-  string? normalized=NormalizePath(uri.AbsolutePath); if(normalized is null)return false;
-  var rule=_policy.Routes.Where(r=>r.Host.Equals(uri.Host,StringComparison.OrdinalIgnoreCase)&&PathMatches(normalized,r.Path)).OrderByDescending(r=>r.Path.Length).ThenBy(r=>r.Allowed).FirstOrDefault();
-  if(rule is not null)return rule.Allowed;
-  if(uri.Host.Equals("ravkavonline.co.il",StringComparison.OrdinalIgnoreCase))return normalized.Equals("/he/store/connect",StringComparison.OrdinalIgnoreCase);
-  if(uri.Host.Equals("hopon.co.il",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("www.hopon.co.il",StringComparison.OrdinalIgnoreCase)) {
-   string[] blocked=["/charging-stations-map","/about","/ravkav","/freeMonthly","/freeMonthlyOtef","/accessibility","/map","/student"];
-   return !blocked.Any(p=>PathMatches(normalized,p));
-  }
-  return _policy.AllowedHosts.Contains(uri.Host,StringComparer.OrdinalIgnoreCase);
- }
+ private bool IsAllowed(Uri uri) => PolicyEngine.IsAllowed(uri,_policy);
  private static string? NormalizePath(string value) {
   try {
    string path=value;
@@ -198,12 +186,83 @@ public partial class MainWindow : Window {
   var payload=rules.Select(x=>new {
    selector=x.Selector, allowed=x.Allowed, text=x.ReplacementText,
    image=(!string.IsNullOrWhiteSpace(x.ReplacementImagePath)&&File.Exists(x.ReplacementImagePath))
-    ? "data:"+ (Path.GetExtension(x.ReplacementImagePath).ToLowerInvariant() is ".jpg" or ".jpeg" ? "image/jpeg" : "image/png") + ";base64,"+Convert.ToBase64String(File.ReadAllBytes(x.ReplacementImagePath))
+    ? "data:"+(Path.GetExtension(x.ReplacementImagePath).ToLowerInvariant() is ".jpg" or ".jpeg" ? "image/jpeg" : "image/png")+";base64,"+Convert.ToBase64String(File.ReadAllBytes(x.ReplacementImagePath))
     : "",
    fit=x.ReplacementImageFit=="cover"?"cover":"contain"
   }).ToArray();
   string json=JsonSerializer.Serialize(payload);
-  await Browser.CoreWebView2.ExecuteScriptAsync("(()=>{for(const r of "+json+"){try{document.querySelectorAll(r.selector).forEach(e=>{if(r.allowed)return;if(r.image){e.replaceChildren();const i=document.createElement('img');i.src=r.image;i.style.maxWidth='100%';i.style.maxHeight='100%';i.style.objectFit=r.fit;e.appendChild(i)}else if(r.text){e.textContent=r.text}else{e.remove()}})}catch{}}})()");
+  string script="""
+  (() => {
+    const rules = __DAAT_RULES__;
+    const states = new WeakMap();
+    let applying = false;
+    let queued = false;
+    const restore = (element, state) => {
+      element.style.display = state.display;
+      if (state.ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', state.ariaHidden);
+      if (state.children) element.replaceChildren(...state.children.map(node => node.cloneNode(true)));
+    };
+    const apply = () => {
+      if (applying || !document.documentElement) return;
+      applying = true;
+      try {
+        for (let index = 0; index < rules.length; index++) {
+          const rule = rules[index];
+          let matches;
+          try { matches = document.querySelectorAll(rule.selector); }
+          catch (error) { console.warn('[DaatAharon] Invalid element selector', rule.selector, error); continue; }
+          for (const element of matches) {
+            const state = states.get(element);
+            if (rule.allowed) {
+              if (state) { restore(element, state); states.delete(element); }
+              continue;
+            }
+            const key = String(index) + '|' + String(rule.text || '') + '|' + String(rule.image || '');
+            if (state && state.key === key) continue;
+            const original = state || {
+              display: element.style.display,
+              ariaHidden: element.getAttribute('aria-hidden'),
+              children: [...element.childNodes].map(node => node.cloneNode(true))
+            };
+            original.key = key;
+            states.set(element, original);
+            if (rule.image) {
+              const image = document.createElement('img');
+              image.src = rule.image;
+              image.alt = '';
+              image.style.maxWidth = '100%';
+              image.style.maxHeight = '100%';
+              image.style.objectFit = rule.fit === 'cover' ? 'cover' : 'contain';
+              element.replaceChildren(image);
+              element.style.removeProperty('display');
+              element.setAttribute('aria-hidden', 'false');
+            } else if (rule.text) {
+              element.textContent = rule.text;
+              element.style.removeProperty('display');
+              element.setAttribute('aria-hidden', 'false');
+            } else {
+              element.style.setProperty('display', 'none', 'important');
+              element.setAttribute('aria-hidden', 'true');
+            }
+          }
+        }
+      } finally { applying = false; }
+    };
+    const schedule = () => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => { queued = false; apply(); });
+    };
+    if (window.__daatObserver) window.__daatObserver.disconnect();
+    window.__daatApplyElementRules = apply;
+    apply();
+    window.__daatObserver = new MutationObserver(schedule);
+    window.__daatObserver.observe(document.documentElement, { childList: true, subtree: true });
+  })();
+  """.Replace("__DAAT_RULES__",json);
+  try { await Browser.CoreWebView2.ExecuteScriptAsync(script); }
+  catch(Exception ex) { Log("החלת כללי רכיבים נכשלה",ex); }
  }
  private async void PickElement_Click(object sender,RoutedEventArgs e){
   if(Browser.CoreWebView2 is null)return; _elementPicking=true;
@@ -306,6 +365,16 @@ public partial class MainWindow : Window {
  private void AllowSelectedElement_Click(object sender,RoutedEventArgs e) {
   if(!_adminUnlocked||ElementsGrid.SelectedItem is not ElementRule item)return;
   item.Allowed=true; SavePolicy(); RefreshGrids(); if(Browser.CoreWebView2 is not null)Browser.CoreWebView2.Reload();
+ }
+ private void BlockSelectedElement_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked||ElementsGrid.SelectedItem is not ElementRule item)return;
+  item.Allowed=false; SavePolicy(); RefreshGrids(); if(Browser.CoreWebView2 is not null)Browser.CoreWebView2.Reload();
+ }
+ private void EditSelectedElement_Click(object sender,RoutedEventArgs e) {
+  if(!_adminUnlocked||ElementsGrid.SelectedItem is not ElementRule item)return;
+  string replacement=Microsoft.VisualBasic.Interaction.InputBox("טקסט חלופי לרכיב (השאר ריק כדי להסתיר אותו)","עריכת רכיב",item.ReplacementText);
+  item.ReplacementText=replacement; item.ReplacementImagePath=""; item.Allowed=false;
+  SavePolicy(); RefreshGrids(); if(Browser.CoreWebView2 is not null)Browser.CoreWebView2.Reload();
  }
  private void PopupSettingChanged(object sender,RoutedEventArgs e) {
   if(!_adminUnlocked||AllowPopupsCheck is null)return;
