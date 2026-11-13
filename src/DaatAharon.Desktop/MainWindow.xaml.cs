@@ -36,7 +36,7 @@ public partial class MainWindow : Window {
  private readonly ObservableCollection<RouteRule> _rules=[];
  private readonly ObservableCollection<ElementRule> _elements=[];
  private readonly List<string> _events=[];
- private bool _elementPicking;
+ private bool _elementPicking;\n private bool _browserInitialized;
  private bool _adminUnlocked;
  private const int PasswordIterations=310000;
  private static readonly string PasswordPath=Path.Combine(DataFolder,"admin-password.json");
@@ -97,7 +97,7 @@ public partial class MainWindow : Window {
    panel.Children.Add(new TextBlock{Text=service.Subtitle,Foreground=System.Windows.Media.Brushes.LightGray,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,5,0,0)});
    panel.Children.Add(new TextBlock{Text="נפתח "+(_policy.ClickCounts.TryGetValue(service.Id,out int count)?count:0)+" פעמים",Foreground=System.Windows.Media.Brushes.LightSteelBlue,FontSize=10,Margin=new Thickness(0,8,0,0)});
    var button=new Button{Content=panel,Tag=service,Padding=new Thickness(16),Margin=new Thickness(0,0,10,10),Background=new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(27,43,66)),BorderThickness=new Thickness(0),HorizontalContentAlignment=HorizontalAlignment.Stretch};
-   button.Click+=(_,_)=>{_policy.ClickCounts[service.Id]=_policy.ClickCounts.TryGetValue(service.Id,out int n)?n+1:1;SavePolicy();OpenService(service);};
+   button.Click+=async (_,_)=>{_policy.ClickCounts[service.Id]=_policy.ClickCounts.TryGetValue(service.Id,out int n)?n+1:1;SavePolicy();await OpenService(service);};
    var menu=new ContextMenu();
    var favoriteItem=new MenuItem{Header=favorite?"הסר ממועדפים":"הוסף למועדפים"};
    favoriteItem.Click+=(_,_)=>{if(!_policy.FavoriteServiceIds.Remove(service.Id))_policy.FavoriteServiceIds.Add(service.Id);SavePolicy();BuildPortal();};
@@ -146,7 +146,7 @@ public partial class MainWindow : Window {
     } catch(Exception ex){Log("בחירת רכיב נכשלה",ex);}
    };
    Browser.CoreWebView2.DOMContentLoaded+=async (_,_)=>{await ApplyElementRulesAsync();await ApplyPaymentRestrictionsAsync();};
-   Browser.CoreWebView2.Navigate("https://hopon.co.il/read"); StatusText.Text="הדפדפן המאובטח מוכן";
+   _browserInitialized=true; StatusText.Text="הדפדפן המאובטח מוכן";
   } catch(Exception ex){Log("אתחול WebView2 נכשל",ex);StatusText.Text="WebView2 לא זמין — בדוק התקנה";}
  }
  private bool IsAllowed(Uri uri) => PolicyEngine.IsAllowed(uri,_policy);
@@ -165,10 +165,11 @@ public partial class MainWindow : Window {
   string normalized=NormalizePath(root)??"/";
   return normalized=="/"||actual.Equals(normalized,StringComparison.OrdinalIgnoreCase)||actual.StartsWith(normalized.TrimEnd('/')+"/",StringComparison.OrdinalIgnoreCase);
  }
- private void OpenService(PortalService service) {
+ private async Task OpenService(PortalService service) {
   ShowBrowser(); AddressBox.Text=service.Url;
+  if(!_browserInitialized)await InitializeBrowserAsync();
   if(Browser.CoreWebView2 is not null&&Uri.TryCreate(service.Url,UriKind.Absolute,out var uri)&&IsAllowed(uri))Browser.CoreWebView2.Navigate(service.Url);
-  else StatusText.Text="הכתובת אינה מורשית או שהדפדפן עדיין נטען";
+  else StatusText.Text="הכתובת אינה מורשית או שהדפדפן לא אותחל";
  }
  private void ShowBrowser(){DashboardView.Visibility=Visibility.Collapsed;ManagementView.Visibility=Visibility.Collapsed;BrowserView.Visibility=Visibility.Visible;PageTitle.Text="דפדפן פנימי";PageSubtitle.Text="גלישה בתוך התוכנה בהתאם למדיניות ההרשאות";}
  private void ShowManagement(string title){DashboardView.Visibility=Visibility.Collapsed;BrowserView.Visibility=Visibility.Collapsed;ManagementView.Visibility=Visibility.Visible;PageTitle.Text=title;PageSubtitle.Text="ניהול מקומי — השינויים נשמרים במחשב זה";RefreshGrids();}
@@ -433,7 +434,7 @@ public partial class MainWindow : Window {
 
  private void Dashboard_Click(object s,RoutedEventArgs e)=>ShowDashboard();
  private void Portal_Click(object s,RoutedEventArgs e)=>ShowDashboard();
- private void Browser_Click(object s,RoutedEventArgs e)=>ShowBrowser();
+ private async void Browser_Click(object s,RoutedEventArgs e){ShowBrowser();if(!_browserInitialized)await InitializeBrowserAsync();if(Browser.CoreWebView2 is not null&&Browser.Source is null)Browser.CoreWebView2.Navigate("https://hopon.co.il/read");}
  private void Policies_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("חסימות והרשאות");}
  private void Popups_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("ניהול חלונות קופצים");}
  private void Elements_Click(object s,RoutedEventArgs e){if(_adminUnlocked)ShowManagement("ניהול רכיבי עמוד");}
