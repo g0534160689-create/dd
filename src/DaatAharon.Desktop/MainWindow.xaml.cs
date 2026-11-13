@@ -16,6 +16,9 @@ public sealed class LocalPolicy {
  public List<RouteRule> Routes { get; set; } = [];
  public List<string> AllowedHosts { get; set; } = ["donors.matara.pro","www.matara.pro","matara.pro","rishumon.net","tora.irom.co.il"];
  public List<ElementRule> Elements { get; set; } = [];
+ public List<string> HiddenServiceIds { get; set; } = [];
+ public List<string> FavoriteServiceIds { get; set; } = [];
+ public Dictionary<string,int> ClickCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
  public bool AllowSameOriginPopups { get; set; } = true;
  public string Theme { get; set; } = "midnight";
 }
@@ -77,14 +80,32 @@ public partial class MainWindow : Window {
   File.Move(tmp,PolicyPath,true); RefreshCounts(); Log("מדיניות נשמרה");
  }
  private void BuildPortal() {
-  foreach(var service in Services) {
+  PortalCards.Children.Clear();
+  string search=PortalSearchBox?.Text?.Trim()??"";
+  var visible=Services.Where(service=>!_policy.HiddenServiceIds.Contains(service.Id,StringComparer.OrdinalIgnoreCase))
+   .Where(service=>string.IsNullOrWhiteSpace(search)||(service.Title+" "+service.Subtitle+" "+service.Category).Contains(search,StringComparison.CurrentCultureIgnoreCase))
+   .OrderByDescending(service=>_policy.FavoriteServiceIds.Contains(service.Id,StringComparer.OrdinalIgnoreCase))
+   .ThenBy(service=>service.Title);
+  foreach(var service in visible) {
+   bool favorite=_policy.FavoriteServiceIds.Contains(service.Id,StringComparer.OrdinalIgnoreCase);
    var panel=new StackPanel();
-   panel.Children.Add(new TextBlock{Text=service.Title,FontSize=16,FontWeight=FontWeights.Bold,Foreground=System.Windows.Media.Brushes.White});
+   panel.Children.Add(new TextBlock{Text=(favorite?"★  ":"")+service.Title,FontSize=16,FontWeight=FontWeights.Bold,Foreground=System.Windows.Media.Brushes.White});
    panel.Children.Add(new TextBlock{Text=service.Subtitle,Foreground=System.Windows.Media.Brushes.LightGray,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,5,0,0)});
+   panel.Children.Add(new TextBlock{Text="נפתח "+(_policy.ClickCounts.TryGetValue(service.Id,out int count)?count:0)+" פעמים",Foreground=System.Windows.Media.Brushes.LightSteelBlue,FontSize=10,Margin=new Thickness(0,8,0,0)});
    var button=new Button{Content=panel,Tag=service,Padding=new Thickness(16),Margin=new Thickness(0,0,10,10),Background=new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(27,43,66)),BorderThickness=new Thickness(0),HorizontalContentAlignment=HorizontalAlignment.Stretch};
-   button.Click+=(_,_)=>OpenService((PortalService)button.Tag); PortalCards.Children.Add(button);
+   button.Click+=(_,_)=>{_policy.ClickCounts[service.Id]=_policy.ClickCounts.TryGetValue(service.Id,out int n)?n+1:1;SavePolicy();OpenService(service);};
+   var menu=new ContextMenu();
+   var favoriteItem=new MenuItem{Header=favorite?"הסר ממועדפים":"הוסף למועדפים"};
+   favoriteItem.Click+=(_,_)=>{if(!_policy.FavoriteServiceIds.Remove(service.Id))_policy.FavoriteServiceIds.Add(service.Id);SavePolicy();BuildPortal();};
+   menu.Items.Add(favoriteItem);
+   var hideItem=new MenuItem{Header="הסתר שירות (מנהל)"};
+   hideItem.Click+=(_,_)=>{if(!_adminUnlocked){MessageBox.Show("הסתרת שירותים זמינה באזור המנהל בלבד.");return;}_policy.HiddenServiceIds.Add(service.Id);SavePolicy();BuildPortal();};
+   menu.Items.Add(hideItem); button.ContextMenu=menu; PortalCards.Children.Add(button);
   }
  }
+ private void PortalSearch_Changed(object sender,TextChangedEventArgs e){if(PortalCards is not null)BuildPortal();}
+ private void RestoreHiddenServices_Click(object sender,RoutedEventArgs e){if(!_adminUnlocked)return;_policy.HiddenServiceIds.Clear();SavePolicy();BuildPortal();MessageBox.Show("כל השירותים שהוסתרו הוחזרו לפורטל.");}
+
  private async Task InitializeBrowserAsync() {
   try {
    string profile=Path.Combine(DataFolder,"WebView2"); Directory.CreateDirectory(profile);
